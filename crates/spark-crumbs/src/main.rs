@@ -91,7 +91,7 @@ enum Commands {
         #[arg(short, long, default_value = "AIEN", help = "Agent ID")]
         agent: String,
 
-        #[arg(short, long, help = "Action type (e.g. edit, test, build, audit)")]
+        #[arg(long, help = "Action type (e.g. edit, test, build, audit)")]
         action: String,
 
         #[arg(short, long, help = "Target artifact or file")]
@@ -175,5 +175,18 @@ fn main() {
                 dir.display()
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Cli;
+    use clap::CommandFactory;
+
+    #[test]
+    fn cli_definition_is_valid() {
+        // Every subcommand, including record, must build without a clap
+        // debug assertion (record once declared -a for both agent and action).
+        Cli::command().debug_assert();
     }
 }

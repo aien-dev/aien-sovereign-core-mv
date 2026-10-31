@@ -13,7 +13,7 @@
     "generated_policy": "on-demand"
   },
   "invariants": [
-    "Crumbs hold only hand-written fields; generated data is derived on demand and never committed. Check: tests/gates/run.sh crumb-verify (gate CRUMB-VERIFY); the hosted CI job AIEN Checks runs crumb verify . with the pinned tool"
+    "No crumb commits an extensions.generated block; generated data is derived on demand. crumb verify fails on a committed generated block or on a crumb that is not a JSON object, and checks nothing else about which fields a crumb holds. The hosted AIEN Checks job also runs crumb verify . with the pinned tool, but that job is advisory and gates no merge. Check: tests/gates/run.sh crumb-verify (gate CRUMB-VERIFY)"
   ],
   "name": "aien-sovereign-core",
   "purpose": "AIEN Sovereign Core: the Rust host runtime, the loopback OpenAI-compatible HTTP door (aien-serve-http) and the FFI to the omega GPU kernels",

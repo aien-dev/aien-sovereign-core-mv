@@ -150,7 +150,11 @@ fn default_lifecycle() -> String {
     "permanent".to_string()
 }
 
+/// A `.crumb` written by this tool. Unknown fields are rejected so that a file
+/// carrying anything this tool would drop on save (for example hand-written
+/// `invariants`) is treated as foreign and never rewritten.
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct DirCrumb {
     pub version: u32,
     pub dir_path: String,
@@ -166,22 +170,15 @@ pub struct DirCrumb {
 
 impl DirCrumb {
     pub fn new(dir: &Path, description: Option<&str>, purpose: Option<CrumbPurpose>) -> Self {
-        let canon = dir
-            .canonicalize()
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_else(|_| dir.to_string_lossy().to_string());
+        let (canon, dir_name) = dir_identity(dir);
 
-        let dir_name = dir
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_else(|| "/".to_string());
-
-        // Inspect Above
-        let above = if let Some(parent) = dir.parent() {
+        // Inspect Above (from the resolved path, so `.` still has a parent)
+        let canon_path = Path::new(&canon);
+        let above = if let Some(parent) = canon_path.parent() {
             let home = std::env::var("HOME")
                 .or_else(|_| std::env::var("USERPROFILE"))
                 .unwrap_or_default();
-            if !home.is_empty() && parent.starts_with(&home) && parent != dir {
+            if !home.is_empty() && parent.starts_with(&home) && parent != canon_path {
                 let p_canon = parent
                     .canonicalize()
                     .map(|p| p.to_string_lossy().to_string())
@@ -240,69 +237,116 @@ impl DirCrumb {
     }
 }
 
+/// Reads `crumb_path`. `Ok(None)`: no file. `Ok(Some)`: a crumb in this tool's
+/// `DirCrumb` format. `Err`: a file exists that is not in that format (for
+/// example a hand-written schema 1.0.0 crumb) or cannot be read; such a file is
+/// never rewritten.
+fn read_dir_crumb_file(crumb_path: &Path) -> Result<Option<DirCrumb>, String> {
+    match fs::symlink_metadata(crumb_path) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(format!("{}: {}", crumb_path.display(), e)),
+        Ok(_) => {}
+    }
+    let content =
+        fs::read_to_string(crumb_path).map_err(|e| format!("{}: {}", crumb_path.display(), e))?;
+    serde_json::from_str::<DirCrumb>(&content)
+        .map(Some)
+        .map_err(|e| format!("{} is not a DirCrumb: {}", crumb_path.display(), e))
+}
+
+/// Read-only view of a directory whose `.crumb` is not in `DirCrumb` format.
+/// The purpose comes from the file's `purpose` string when it has one.
+fn foreign_crumb_view(dir: &Path) -> DirCrumb {
+    let statement = fs::read_to_string(dir.join(CRUMB_FILENAME))
+        .ok()
+        .and_then(|c| serde_json::from_str::<serde_json::Value>(&c).ok())
+        .and_then(|v| {
+            v.get("purpose")
+                .and_then(|p| p.as_str())
+                .map(str::to_string)
+        });
+    let purpose = statement.map(|statement| CrumbPurpose {
+        statement,
+        created_by: "hand-written .crumb".to_string(),
+        session_id: String::new(),
+        created_at: String::new(),
+        lifecycle: "permanent".to_string(),
+    });
+    let mut crumb = DirCrumb::new(
+        dir,
+        Some("Existing .crumb is not in DirCrumb format; shown read-only and never rewritten"),
+        purpose,
+    );
+    merge_local_crumb(&mut crumb, dir);
+    crumb
+}
+
+/// Merges ephemeral telemetry from `.crumb.local` into `crumb`.
+fn merge_local_crumb(crumb: &mut DirCrumb, dir: &Path) {
+    let local_data = load_local_crumb(dir);
+    for h in local_data.history {
+        if !crumb
+            .history
+            .iter()
+            .any(|existing| existing.crumb_id == h.crumb_id)
+        {
+            crumb.history.push(h);
+        }
+    }
+    for w in local_data.whispers {
+        if !crumb
+            .whispers
+            .iter()
+            .any(|existing| existing.whisper_id == w.whisper_id || existing.message == w.message)
+        {
+            crumb.whispers.push(w);
+        }
+    }
+}
+
+/// Loads `dir/.crumb`. Seeds and writes a new crumb only when no `.crumb` file
+/// exists. A `.crumb` that is not in `DirCrumb` format (a hand-written crumb)
+/// is never written; a read-only view is returned instead.
 pub fn load_or_init_dir_crumb(dir: &Path, purpose_opt: Option<CrumbPurpose>) -> DirCrumb {
     let crumb_path = dir.join(CRUMB_FILENAME);
-    if crumb_path.exists() {
-        if let Ok(content) = fs::read_to_string(&crumb_path) {
-            match serde_json::from_str::<DirCrumb>(&content) {
-                Err(e) => eprintln!(
-                    "Failed to parse DirCrumb at {}: {}",
-                    crumb_path.display(),
-                    e
-                ),
-                Ok(mut crumb) => {
-                    // Refresh below items dynamically
-                    let mut below = Vec::new();
-                    if let Ok(entries) = fs::read_dir(dir) {
-                        for entry in entries.flatten() {
-                            let name = entry.file_name().to_string_lossy().to_string();
-                            if name.starts_with(".") {
-                                continue;
-                            }
-                            let is_dir = entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false);
-                            below.push(BelowItem {
-                                name,
-                                item_type: if is_dir {
-                                    "dir".to_string()
-                                } else {
-                                    "file".to_string()
-                                },
-                                role: String::new(),
-                            });
-                        }
+    match read_dir_crumb_file(&crumb_path) {
+        Err(_) => return foreign_crumb_view(dir),
+        Ok(Some(mut crumb)) => {
+            // The stored location may be stale (the crumb was moved or copied):
+            // the directory it was loaded from is authoritative.
+            let (dir_path, dir_name) = dir_identity(dir);
+            crumb.dir_path = dir_path;
+            crumb.dir_name = dir_name;
+            // Refresh below items dynamically
+            let mut below = Vec::new();
+            if let Ok(entries) = fs::read_dir(dir) {
+                for entry in entries.flatten() {
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    if name.starts_with(".") {
+                        continue;
                     }
-                    below.sort_by(|a, b| a.name.cmp(&b.name));
-                    crumb.below = below;
-                    if crumb.purpose.is_none() && purpose_opt.is_some() {
-                        crumb.purpose = purpose_opt.clone();
-                        save_dir_crumb(&crumb);
-                    }
-                    // Merge ephemeral telemetry from .crumb.local
-                    let local_data = load_local_crumb(dir);
-                    if !local_data.history.is_empty() {
-                        for h in local_data.history {
-                            if !crumb
-                                .history
-                                .iter()
-                                .any(|existing| existing.crumb_id == h.crumb_id)
-                            {
-                                crumb.history.push(h);
-                            }
-                        }
-                    }
-                    if !local_data.whispers.is_empty() {
-                        for w in local_data.whispers {
-                            if !crumb.whispers.iter().any(|existing| {
-                                existing.whisper_id == w.whisper_id || existing.message == w.message
-                            }) {
-                                crumb.whispers.push(w);
-                            }
-                        }
-                    }
-                    return crumb;
+                    let is_dir = entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false);
+                    below.push(BelowItem {
+                        name,
+                        item_type: if is_dir {
+                            "dir".to_string()
+                        } else {
+                            "file".to_string()
+                        },
+                        role: String::new(),
+                    });
                 }
             }
+            below.sort_by(|a, b| a.name.cmp(&b.name));
+            crumb.below = below;
+            if crumb.purpose.is_none() && purpose_opt.is_some() {
+                crumb.purpose = purpose_opt.clone();
+                let _ = save_dir_crumb(dir, &crumb);
+            }
+            merge_local_crumb(&mut crumb, dir);
+            return crumb;
         }
+        Ok(None) => {}
     }
 
     // Auto-Sense & Seed if purpose not provided
@@ -321,22 +365,40 @@ pub fn load_or_init_dir_crumb(dir: &Path, purpose_opt: Option<CrumbPurpose>) -> 
     };
 
     let crumb = DirCrumb::new(dir, None, final_purpose);
-    save_dir_crumb(&crumb);
+    let _ = save_dir_crumb(dir, &crumb);
     crumb
 }
 
-pub fn save_dir_crumb(crumb: &DirCrumb) {
-    let dir = Path::new(&crumb.dir_path);
+/// Canonical path and name of `dir`, so `.` and relative paths get the real
+/// directory name. Falls back to the path as given when it cannot be resolved.
+fn dir_identity(dir: &Path) -> (String, String) {
+    let canon = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
+    let name = canon
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "/".to_string());
+    (canon.to_string_lossy().to_string(), name)
+}
+
+/// Writes the durable part of `crumb` to `dir/.crumb`, never to the crumb's
+/// stored `dir_path`, and records `dir` as its location. Refuses, without
+/// writing, when an existing `.crumb` is not in `DirCrumb` format.
+pub fn save_dir_crumb(dir: &Path, crumb: &DirCrumb) -> Result<(), String> {
     let crumb_path = dir.join(CRUMB_FILENAME);
+    if let Err(e) = read_dir_crumb_file(&crumb_path) {
+        return Err(format!("refusing to overwrite .crumb: {}", e));
+    }
 
     // Durable .crumb: keep architectural purpose, above/below, clean of ephemeral churn
     let mut durable_crumb = crumb.clone();
+    let (dir_path, dir_name) = dir_identity(dir);
+    durable_crumb.dir_path = dir_path;
+    durable_crumb.dir_name = dir_name;
     durable_crumb.history = Vec::new(); // Ephemeral history lives in .crumb.local
     durable_crumb.whispers = Vec::new(); // Whispers live in .crumb.local
 
-    if let Ok(json_str) = serde_json::to_string_pretty(&durable_crumb) {
-        let _ = fs::write(&crumb_path, json_str);
-    }
+    let json_str = serde_json::to_string_pretty(&durable_crumb).map_err(|e| e.to_string())?;
+    fs::write(&crumb_path, json_str).map_err(|e| format!("{}: {}", crumb_path.display(), e))
 }
 
 /// Records an action in the directory's `.crumb` file and bubbles awareness to parent.
@@ -810,5 +872,154 @@ mod tests {
         assert!(card.contains("DIRECTORY CRUMB"));
 
         let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    /// Shape of a hand-written crumb on main (crates/aien-serve-http/.crumb).
+    const HAND_WRITTEN_CRUMB: &str = r#"{
+  "invariants": [
+    "The door refuses to bind a non-loopback address. Check: cargo test -p aien-serve-http --test loopback -- --exact non_loopback_bind_is_refused"
+  ],
+  "name": "aien-serve-http",
+  "purpose": "OpenAI-compatible HTTP door for AIEN's own-kernel model serving (OWN-30B cut 4)",
+  "schema_version": "1.0.0"
+}
+"#;
+
+    #[test]
+    fn hand_written_crumb_is_never_rewritten() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("test-handwritten-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(temp_dir.join("src")).expect("create temp dir");
+        fs::write(temp_dir.join("Cargo.toml"), "[package]\nname = \"door\"\n").expect("cargo");
+        let crumb_path = temp_dir.join(CRUMB_FILENAME);
+        fs::write(&crumb_path, HAND_WRITTEN_CRUMB).expect("write crumb");
+
+        let crumb = load_or_init_dir_crumb(&temp_dir, None);
+        let _ = format_dir_crumb_tui(&temp_dir);
+        let _ = sniff_dir_crumb(&temp_dir, "Peer-Agent");
+        let _ = discover_workspace_crumbs_summary(&temp_dir);
+        seed_directory_tree(&temp_dir, false, "AIEN", Some("seeded"));
+        seed_directory_tree(&temp_dir, true, "AIEN", None);
+        record_crumb_action(&temp_dir, "AIEN", "s", "edit", "Cargo.toml", "i", "v");
+
+        assert_eq!(
+            fs::read_to_string(&crumb_path).expect("read crumb"),
+            HAND_WRITTEN_CRUMB
+        );
+        assert_eq!(
+            crumb.purpose.map(|p| p.statement).as_deref(),
+            Some("OpenAI-compatible HTTP door for AIEN's own-kernel model serving (OWN-30B cut 4)")
+        );
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn save_refuses_to_overwrite_foreign_crumb() {
+        let temp_dir = std::env::temp_dir().join(format!("test-refuse-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&temp_dir).expect("create temp dir");
+        let crumb_path = temp_dir.join(CRUMB_FILENAME);
+
+        // A hand-written crumb: load gives a view, save refuses, bytes unchanged.
+        fs::write(&crumb_path, HAND_WRITTEN_CRUMB).expect("write crumb");
+        let mut crumb = load_or_init_dir_crumb(&temp_dir, None);
+        crumb.description = "changed".to_string();
+        assert!(save_dir_crumb(&temp_dir, &crumb).is_err());
+        assert_eq!(fs::read_to_string(&crumb_path).unwrap(), HAND_WRITTEN_CRUMB);
+
+        // A DirCrumb with an extra hand-written field: save would drop the
+        // field, so it is refused too.
+        let seeded = DirCrumb::new(&temp_dir, None, None);
+        let mut value = serde_json::to_value(&seeded).unwrap();
+        value["invariants"] = serde_json::json!(["kept by hand"]);
+        let mixed = serde_json::to_string_pretty(&value).unwrap();
+        fs::write(&crumb_path, &mixed).expect("write mixed crumb");
+        assert!(save_dir_crumb(&temp_dir, &seeded).is_err());
+        assert_eq!(fs::read_to_string(&crumb_path).unwrap(), mixed);
+
+        // A crumb this tool wrote is still saved.
+        fs::remove_file(&crumb_path).unwrap();
+        let fresh = load_or_init_dir_crumb(&temp_dir, None);
+        assert!(fresh.purpose.is_some());
+        assert!(save_dir_crumb(&temp_dir, &fresh).is_ok());
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn save_writes_where_the_crumb_was_loaded_not_to_stored_dir_path() {
+        let here = std::env::temp_dir().join(format!("test-here-{}", uuid::Uuid::new_v4()));
+        let old = std::env::temp_dir().join(format!("test-old-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&here).expect("create here");
+        fs::create_dir_all(&old).expect("create old");
+
+        // A DirCrumb moved (or copied) from `old`: its stored dir_path is stale.
+        let mut moved = DirCrumb::new(&old, None, None);
+        moved.purpose = None;
+        fs::write(
+            here.join(CRUMB_FILENAME),
+            serde_json::to_string_pretty(&moved).unwrap(),
+        )
+        .expect("write moved crumb");
+
+        // Loading with a purpose fills the missing purpose and saves.
+        let purpose = CrumbPurpose {
+            statement: "filled on load".to_string(),
+            created_by: "test".to_string(),
+            session_id: "test".to_string(),
+            created_at: "2026-10-31T00:00:00Z".to_string(),
+            lifecycle: "permanent".to_string(),
+        };
+        let loaded = load_or_init_dir_crumb(&here, Some(purpose));
+
+        assert!(
+            !old.join(CRUMB_FILENAME).exists(),
+            "save wrote to the stale stored dir_path"
+        );
+        let saved: DirCrumb =
+            serde_json::from_str(&fs::read_to_string(here.join(CRUMB_FILENAME)).unwrap()).unwrap();
+        let canon = here.canonicalize().unwrap().to_string_lossy().to_string();
+        assert_eq!(saved.dir_path, canon);
+        assert_eq!(loaded.dir_path, canon);
+        assert_eq!(
+            saved.purpose.map(|p| p.statement).as_deref(),
+            Some("filled on load")
+        );
+
+        let _ = fs::remove_dir_all(&here);
+        let _ = fs::remove_dir_all(&old);
+    }
+
+    #[test]
+    fn dir_name_of_dot_is_the_real_directory_name() {
+        let crumb = DirCrumb::new(Path::new("."), None, None);
+        let expected = std::env::current_dir()
+            .unwrap()
+            .canonicalize()
+            .unwrap()
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
+        assert_eq!(crumb.dir_name, expected);
+    }
+
+    #[test]
+    fn crumb_for_dot_has_the_parent_entry() {
+        let cwd = std::env::current_dir().unwrap().canonicalize().unwrap();
+        let home = std::env::var("HOME").unwrap_or_default();
+        let parent = cwd.parent().unwrap();
+        assert!(
+            !home.is_empty() && parent.starts_with(&home),
+            "test needs the crate directory under HOME"
+        );
+        let crumb = DirCrumb::new(Path::new("."), None, None);
+        match crumb.above {
+            Some(AboveValue::Structured(above)) => {
+                assert_eq!(above.canonical, parent.to_string_lossy());
+                assert_eq!(above.name, parent.file_name().unwrap().to_string_lossy());
+            }
+            other => panic!("no parent entry for \".\": {:?}", other.is_some()),
+        }
     }
 }

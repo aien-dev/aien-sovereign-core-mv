@@ -687,6 +687,7 @@ fn exec_write_file(
         Err(err) => return bind_err(err),
     };
     let p = held.authorized();
+    let mut crumb_error = None;
     if created_parent {
         if let Some(parent) = p.parent() {
             let file_name = p
@@ -701,7 +702,7 @@ fn exec_write_file(
                 lifecycle: "permanent".to_string(),
             };
             let crumb = load_or_init_dir_crumb(parent, Some(parent_purpose));
-            save_dir_crumb(&crumb);
+            crumb_error = save_dir_crumb(parent, &crumb).err();
         }
     }
 
@@ -715,6 +716,9 @@ fn exec_write_file(
     });
     if let Some(notice) = crumb_notice {
         resp["peer_breadcrumb_notice"] = json!(notice);
+    }
+    if let Some(err) = crumb_error {
+        resp["crumb_error"] = json!(err);
     }
     (resp, true)
 }
@@ -866,7 +870,9 @@ fn exec_crumb_tool(args: &Value) -> (Value, bool) {
             };
             let mut crumb = load_or_init_dir_crumb(p_dir, Some(purpose_obj));
             crumb.description = purpose_str.to_string();
-            save_dir_crumb(&crumb);
+            if let Err(err) = save_dir_crumb(p_dir, &crumb) {
+                return (json!({"error": err}), false);
+            }
             (
                 json!({"status": "ok", "message": format!("Initialized .crumb with purpose for {}", p_dir.display())}),
                 true,
@@ -914,7 +920,7 @@ fn exec_create_dir(path: &str, purpose: &str, lifecycle: Option<&str>) -> (Value
 
     let mut crumb = load_or_init_dir_crumb(p, Some(purpose_obj));
     crumb.description = purpose.to_string();
-    save_dir_crumb(&crumb);
+    let crumb_error = save_dir_crumb(p, &crumb).err();
 
     // Record scent mark into crumb
     record_directory_crumb(
@@ -928,16 +934,17 @@ fn exec_create_dir(path: &str, purpose: &str, lifecycle: Option<&str>) -> (Value
 
     let crumb_overview = format_dir_crumb_tui(p);
 
-    (
-        json!({
-            "status": "ok",
-            "path": path,
-            "purpose": purpose,
-            "crumb_created": true,
-            "directory_crumb": crumb_overview
-        }),
-        true,
-    )
+    let mut resp = json!({
+        "status": "ok",
+        "path": path,
+        "purpose": purpose,
+        "crumb_created": crumb_error.is_none(),
+        "directory_crumb": crumb_overview
+    });
+    if let Some(err) = crumb_error {
+        resp["crumb_error"] = json!(err);
+    }
+    (resp, true)
 }
 
 pub fn adapter_dispatch_tool(args: &Value) -> Value {
