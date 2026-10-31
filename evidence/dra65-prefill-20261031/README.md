@@ -71,13 +71,16 @@ chunking, every token stepped with 0. Review Rev862's mutations, each applied al
 -> 10 passed. What stays chip-only: the wrappers (`prefill_state`'s env read, the embed + `g.prefill` per chunk),
 hence the window's prefill-only red arm (step 2).
 
-Script against a mock door (`/tmp/dra65mock/mock2.py`, run with `SPARK_WINDOW=w-test-1 AIEN_GB10_LOCK_HELD=1`):
-red with one turn-2 id changed PASS rc 0; red on exact goldens FAIL rc 1; red on empty ids, short ids or HTTP 500
-INCONCLUSIVE rc 2; green with 0 or 1 red receipt, or with receipts of another binary sha, refused rc 2; green with
-two receipts: exact PASS rc 0, one id changed FAIL rc 1, empty ids INCONCLUSIVE rc 2; time: exact RECORDED rc 0
-(6/6 runs ok), HTTP 500 and missing usage INCONCLUSIVE rc 2. Without `SPARK_WINDOW`, or with
-`AIEN_GB10_LOCK_HELD=0`: NOT_RUN rc 3. Every `golden.jsonl` / `time.jsonl` line and receipt carried
-`window: w-test-1` and the binary sha.
+Script probes against a mock door (`/tmp/dra65mock/mock2.py`, `SPARK_WINDOW=w-test-2`): red with one turn-2 id
+changed PASS rc 0; red on exact goldens FAIL rc 1; red on empty ids, short ids or HTTP 500 INCONCLUSIVE rc 2; green
+with 0 or 1 red receipt, or with receipts of another binary sha, refused rc 2; green with two receipts: exact PASS
+rc 0, one id changed FAIL rc 1, empty ids INCONCLUSIVE rc 2; time: exact RECORDED rc 0 (6/6 runs ok), HTTP 500 and
+missing usage INCONCLUSIVE rc 2; no `SPARK_WINDOW` NOT_RUN rc 3. Every `golden.jsonl` / `time.jsonl` line and
+receipt carried `window: w-test-2` and the binary sha. `run` guard, with `DRA65_TEST_LOCK` pointing at a scratch
+lock (it never reaches the chip): no `SPARK_WINDOW` rc 3; lock held by another process rc 3 ("held by another
+process"); `DRA65_LOCKED` spoofed without holding the lock rc 3 ("held by pid(s) ..., none an ancestor"); lock
+free: taken, its flock(1) holder found among the script's ancestors, then rc 3 as the test lock demands. The
+part past the guard (lease, listener and chip checks, server start, step loop) is NOT_RUN on host.
 
 Mutant 4 wiring (source, omega 474197e4f): `AIEN_Q36_TEST_MUTANT=4` -> `moe.rs` `graph_mutant()` ->
 `test_set_mutant` on the main graph and (`rows.rs` wire) every row and stroke graph; in C mutant 4 swaps K_CN for
@@ -90,12 +93,23 @@ never reads it, and with `AIEN_Q36_PREFILL_CHUNK=0` the single door runs no chip
 
 ## Window (Main; chip gates NOT_RUN until then)
 
-Quiet exclusive window per the usual procedure (marker, stop 18091 and Flint, `spark-window open ... --gb10
-exclusive --quiet exclusive --lease 20`). Every step runs as `spark-window run bash window-dra65.sh ...`; the
-script refuses with exit 3 (NOT_RUN) unless `SPARK_WINDOW` is set and `AIEN_GB10_LOCK_HELD=1`, never takes
-`/tmp/aien-gb10.lock` itself, and stamps the window id and binary sha into every receipt line. NEW = the build
-of this branch, `B=$(sha256sum <server binary> | cut -c1-64)`. Each line: start the server with the env shown
-(~33 s), run, stop. Steps 1-2 must come first; step 3 onward need their receipts (from any earlier lease).
+Main opens a quiet exclusive window without the chip lock (marker, `spark-window open ... --gb10 none --quiet
+exclusive --lease 20`), stops 18091 and Flint, and runs one lease's steps:
+`spark-window run bash evidence/dra65-prefill-20261031/window-dra65.sh run BIN OUT STEP ...`, BIN = the server
+binary built from this branch, OUT = one receipt root for every lease (step N writes `OUT/N/`). The 35B server's
+chip reservation (`crates/aien-serve-http/src/chip_reservation.rs` L88-95) accepts `/tmp/aien-gb10.lock` only
+when one of its ancestors holds it, and spark-window's holder never is; so the script takes `flock -n` on the
+lock itself (flock(1) holds it and runs the script as its child), checks in `/proc/locks` that the exclusive
+holder is its ancestor, and starts each server as its own child with `AIEN_GB10_LOCK_HELD=1`. Exit 3 (NOT_RUN,
+chip untouched): no `SPARK_WINDOW`; the lock held by anyone else; a listener on 18091, 18300, 18310 or the test
+port 18192; a compute app on the chip; BIN or the model missing; green steps without the red receipts in
+`OUT/1`, `OUT/2`; or the steps' estimates longer than the lease has left (`$SPARK_WINDOW_DIR/held` + `lease`).
+Servers: the live `start-35b.sh` flags (`--max-context 131072`) for the single door, `start-35b-batch.sh`
+(`--max-context 49152 --batch-slots 8`) for the batch door, `--bind 127.0.0.1 --max-tokens-cap 16384 --thinking
+off AIEN_Q36_STROKE=0`, plus the step's env. Each step writes `OUT/N/step-receipt.json` (window id, binary path
+and sha256, door, env, est_s, server_ready_s, elapsed_s, rc, lock holder pid, the probe's receipt) beside the
+probe's own receipts; `run` stops at the first step that does not exit 0, and posts GPU-START/GPU-END lines on
+the board.
 
 Estimated durations (MODELED, upper bounds at max_tokens; `window-dra65.sh plan` prints them), with decode
 0.0201 s/token, chunked prompts 250 tok/s (8210 tokens at 196.8), stepped prompts 0.0201 s/token, +33 s start:
@@ -103,23 +117,26 @@ golden chunked `dec*(756 + 49 + 876) + 365/250. + 2486/250. + 8210/196.8` = 86.9
 golden all-stepped (step 3) `dec*(756 + 365 + 2486 + 8210 + 49 + 876)` = 256.1 s -> 289 s; time chunked
 `3*(512/250. + 8210/196.8) + 6*256*dec` = 162.2 s -> 195 s; time all-stepped `dec*(3*(512 + 8210) + 6*256)` =
 556.8 s -> 590 s (756 = the set's prompt tokens, 876 = its decode tokens 798 + 3*24 + 6; 49 = turn 2 past the
-snapshot; 512 = planning size of long-512). 20-min leases: L1 = steps 1-5 (`4*119.91 + 289.11` = 769 s), L2 =
-6a + 6b (785 s), L3 = 6c + 6d (390 s).
+snapshot; 512 = planning size of long-512). 20-min leases: L1 = `run BIN OUT 1 2 3 4 5`
+(`4*119.91 + 289.11` = 769 s), L2 = `6a 6b` (785 s), L3 = `6c 6d` (390 s).
 
-1. Single door, `AIEN_Q36_TEST_MUTANT=4`: `window-dra65.sh golden PORT OUT/w1 red $B mutant4` -> PASS (red).
-2. Single door, `AIEN_OMEGA_Q36_PF_MUTANT=2`: `window-dra65.sh golden PORT OUT/w2 red $B pf2` -> PASS (red: the
-   chunk path runs).
-3. Single door, `AIEN_OMEGA_Q36_PF_MUTANT=2 AIEN_Q36_PREFILL_CHUNK=0`: `window-dra65.sh golden PORT OUT/w3 green
-   $B pf2-chunk0 OUT/w1/golden-receipt.json OUT/w2/golden-receipt.json` -> PASS (the mutant lives on the chunk
-   path only).
-4. Single door, plain: `... golden PORT OUT/w4 green $B single OUT/w1/... OUT/w2/...` -> PASS = 36/36.
-5. Batch door (`--batch-slots 8`), plain: `... golden PORT OUT/w5 green $B batch OUT/w1/... OUT/w2/...`.
-6. `window-dra65.sh time PORT OUT/w6-<arm> $B <arm>` on: single; single with `AIEN_Q36_PREFILL_CHUNK=0` (the
-   all-token-steps arm above); batch; batch with `AIEN_Q36_PREFILL_MIN=1` (chunks the answer header too). Exit 0
-   only if all 6 runs have HTTP 200, a first content delta and usage. Receipts: `time.jsonl`. TTFT = t_first - t0;
-   e2e tok/s = completion_tokens / (t_end - t_first). Medians of the 3 runs through Wolfram (`Median[{...}]`).
-   Record `usage.prompt_tokens` of long-512 (the host has no tokenizer). Target 1 compares e2e against chip-only
-   decode from DRA-66's `chip_ns` in the same runs.
+| step | door | server env | probe | expect | est_s |
+|---|---|---|---|---|---|
+| 1 | single | `AIEN_Q36_TEST_MUTANT=4` | golden red `mutant4` | PASS (red) | 120 |
+| 2 | single | `AIEN_OMEGA_Q36_PF_MUTANT=2` | golden red `pf2` | PASS (red: the chunk path runs) | 120 |
+| 3 | single | `AIEN_OMEGA_Q36_PF_MUTANT=2 AIEN_Q36_PREFILL_CHUNK=0` | golden green `pf2-chunk0` | PASS (the mutant lives on the chunk path only) | 289 |
+| 4 | single | - | golden green `single` | PASS = 36/36 | 120 |
+| 5 | batch | - | golden green `batch` | PASS = 36/36 | 120 |
+| 6a | single | - | time `single` | RECORDED | 195 |
+| 6b | single | `AIEN_Q36_PREFILL_CHUNK=0` (all token steps) | time `single-chunk0` | RECORDED | 590 |
+| 6c | batch | - | time `batch` | RECORDED | 195 |
+| 6d | batch | `AIEN_Q36_PREFILL_MIN=1` (chunks the answer header too) | time `batch-min1` | RECORDED | 195 |
+
+Green steps get `OUT/1/golden-receipt.json` and `OUT/2/golden-receipt.json` and refuse unless both are red PASS
+of the same binary sha. Time steps: exit 0 only if all 6 runs have HTTP 200, a first content delta and usage;
+receipts `time.jsonl`. TTFT = t_first - t0; e2e tok/s = completion_tokens / (t_end - t_first). Medians of the 3
+runs through Wolfram (`Median[{...}]`). Record `usage.prompt_tokens` of long-512 (the host has no tokenizer).
+Target 1 compares e2e against chip-only decode from DRA-66's `chip_ns` in the same runs.
 
 ## Predictions (MODELED, Wolfram)
 

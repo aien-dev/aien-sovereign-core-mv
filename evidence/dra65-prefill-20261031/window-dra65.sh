@@ -1,11 +1,18 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
-# DRA-65 chip window. Main runs each step as `spark-window run bash window-dra65.sh ...` inside a
-# `--gb10 exclusive --quiet exclusive` window; anywhere else it refuses with exit 3 (NOT_RUN): it needs
-# SPARK_WINDOW (the window id) and AIEN_GB10_LOCK_HELD=1, both set by `spark-window run`. It never takes
-# /tmp/aien-gb10.lock itself (the window holds it) and never starts or stops a server: Main starts each
-# server as README.md lists (~33 s per arm), then runs
-#   window-dra65.sh plan     (no window needed: the steps with their estimated durations)
+# DRA-65 chip window. Main opens `spark-window open ... --gb10 none --quiet exclusive --lease 20`, stops 18091 and
+# Flint, then runs one lease's steps as
+#   spark-window run bash window-dra65.sh run BIN OUT STEP [STEP ...]
+# BIN = the server binary built from this branch, OUT = a receipt root shared by every lease (step N writes
+# OUT/N/). The server's chip reservation (aien-serve-http chip_reservation.rs) only accepts /tmp/aien-gb10.lock
+# held by one of its ancestors, so this script takes `flock -n` on it itself and starts every server as its
+# child with AIEN_GB10_LOCK_HELD=1. Exit 3 = NOT_RUN, chip untouched: no SPARK_WINDOW, the lock held by someone
+# else, a listener on 18091/18300/18310 or the test port, a compute app on the chip, the binary or model
+# missing, or the steps' estimated time longer than the lease has left.
+#   window-dra65.sh plan     (no window needed: the steps, their server env and estimated durations)
+# Every receipt line carries the window id and the binary sha256.
+#
+# Probes (an already running server on PORT; `run` calls them, the host checks them against a mock door):
 #   window-dra65.sh golden PORT OUT red   BIN_SHA256 LABEL
 #   window-dra65.sh golden PORT OUT green BIN_SHA256 LABEL RED_RECEIPT RED_RECEIPT [...]
 #       36 cases (32-prompt set, 3 long prompts, turn 2 restoring the long-2048 snapshot) vs the pinned goldens.
@@ -17,34 +24,148 @@
 # SHORT (a strict prefix of the golden: no flip shown), NO_IDS (HTTP error, missing or empty ids).
 # golden red:   PASS = at least one DIFF and no NO_IDS/SHORT; NO_IDS/SHORT -> INCONCLUSIVE; else FAIL.
 # golden green: PASS = all SAME; any NO_IDS -> INCONCLUSIVE; else FAIL.
-# Exit 0 = PASS, 1 = FAIL, 2 = INCONCLUSIVE or refused, 3 = NOT_RUN (not inside a chip window). time: 0
-# only if every run has HTTP 200, a first content delta and usage with completion_tokens > 0; else 2.
-# Every receipt line carries the window id and the binary sha256.
+# Exit 0 = PASS, 1 = FAIL, 2 = INCONCLUSIVE or refused, 3 = NOT_RUN. time: 0 only if every run has HTTP 200,
+# a first content delta and usage with completion_tokens > 0; else 2. `run` stops at the first step that
+# does not exit 0 and returns its code.
 set -uo pipefail
-HERE=$(cd "$(dirname "$0")" && pwd); REPO=$(cd "$HERE/../.." && pwd)
+HERE=$(cd "$(dirname "$0")" && pwd); REPO=$(cd "$HERE/../.." && pwd); SELF=$HERE/$(basename "$0")
 die() { echo "window-dra65: $*" >&2; exit 2; }
-if [ "${1:-}" = plan ]; then
-  # MODELED (Wolfram, README "Window"): decode 0.0201 s/token, chunked prompts 250 tok/s (8210: 196.8),
-  # stepped prompts 0.0201 s/token; upper bounds at max_tokens; plus ~33 s server start per arm.
-  cat <<'EOF'
-step arm                                   mode    est_s  (incl. 33 s start)
-1    single NEW AIEN_Q36_TEST_MUTANT=4     red     120
-2    single NEW AIEN_OMEGA_Q36_PF_MUTANT=2 red     120
-3    single NEW PF_MUTANT=2 + CHUNK=0      green   289    (every prompt token stepped)
-4    single NEW plain                      green   120
-5    batch NEW --batch-slots 8             green   120
-6a   time single NEW                       time    195
-6b   time single NEW CHUNK=0               time    590
-6c   time batch NEW                        time    195
-6d   time batch NEW AIEN_Q36_PREFILL_MIN=1 time    195
-20-min leases: L1 = steps 1-5 (769 s), L2 = 6a + 6b (785 s), L3 = 6c + 6d (390 s).
-EOF
-  exit 0
-fi
-if [ -z "${SPARK_WINDOW:-}" ] || [ "${AIEN_GB10_LOCK_HELD:-}" != 1 ]; then
-  echo "window-dra65: NOT_RUN: run inside a --gb10 exclusive window via 'spark-window run' (SPARK_WINDOW='${SPARK_WINDOW:-}', AIEN_GB10_LOCK_HELD='${AIEN_GB10_LOCK_HELD:-}')" >&2
-  exit 3
-fi
+not_run() { echo "window-dra65: NOT_RUN: $*" >&2; exit 3; }
+
+# step -> door, server env, probe, estimated seconds. MODELED (Wolfram, README "Window"): decode 0.0201 s/token,
+# chunked prompts 250 tok/s (8210: 196.8), stepped prompts 0.0201 s/token; upper bounds at max_tokens; each
+# includes ~33 s server start.
+step_def() {
+  ENVS=(); case $1 in
+  1)  DOOR=single; ENVS=(AIEN_Q36_TEST_MUTANT=4);                                PROBE="golden red mutant4";       EST=120 ;;
+  2)  DOOR=single; ENVS=(AIEN_OMEGA_Q36_PF_MUTANT=2);                            PROBE="golden red pf2";           EST=120 ;;
+  3)  DOOR=single; ENVS=(AIEN_OMEGA_Q36_PF_MUTANT=2 AIEN_Q36_PREFILL_CHUNK=0);   PROBE="golden green pf2-chunk0";  EST=289 ;;
+  4)  DOOR=single;                                                               PROBE="golden green single";      EST=120 ;;
+  5)  DOOR=batch;                                                                PROBE="golden green batch";       EST=120 ;;
+  6a) DOOR=single;                                                               PROBE="time single";              EST=195 ;;
+  6b) DOOR=single; ENVS=(AIEN_Q36_PREFILL_CHUNK=0);                              PROBE="time single-chunk0";       EST=590 ;;
+  6c) DOOR=batch;                                                                PROBE="time batch";               EST=195 ;;
+  6d) DOOR=batch;  ENVS=(AIEN_Q36_PREFILL_MIN=1);                                PROBE="time batch-min1";          EST=195 ;;
+  *) return 1 ;;
+  esac
+}
+
+case ${1:-} in
+plan)
+  printf '%-4s %-7s %-55s %-24s %s\n' step door "server env" probe est_s
+  for s in 1 2 3 4 5 6a 6b 6c 6d; do
+    step_def $s; printf '%-4s %-7s %-55s %-24s %s\n' $s $DOOR "${ENVS[*]:--}" "$PROBE" $EST
+  done
+  echo "Steps 1-2 (red) come first; 3-5 need their receipts in OUT/1 and OUT/2 (any earlier lease)."
+  echo "20-min leases: L1 = run BIN OUT 1 2 3 4 5 (769 s), L2 = 6a 6b (785 s), L3 = 6c 6d (390 s)."
+  exit 0 ;;
+run)
+  [ -n "${SPARK_WINDOW:-}" ] || not_run "no SPARK_WINDOW: run as 'spark-window run bash $0 run ...' inside a --quiet exclusive window"
+  [ $# -ge 4 ] || die "usage: run BIN OUT STEP [STEP ...]"
+  # DRA65_TEST_LOCK (host check of this guard only): use another lock file and stop before any chip contact.
+  LOCK=${DRA65_TEST_LOCK:-/tmp/aien-gb10.lock}
+  if [ "${DRA65_LOCKED:-}" != "$SPARK_WINDOW" ]; then
+    # flock(1) holds the lock in its own process and runs us as its child: the holder is an ancestor of
+    # this shell and of every server it starts.
+    DRA65_LOCKED=$SPARK_WINDOW flock -n -E 75 "$LOCK" bash "$SELF" "$@"; rc=$?
+    [ $rc = 75 ] && not_run "$LOCK is held by another process; this script takes it itself (open the window with --gb10 none)"
+    exit $rc
+  fi
+  BIN=$(readlink -f "$2"); OUT=$3; shift 3; STEPS=("$@")
+  WIN=$SPARK_WINDOW
+  # 1. An exclusive flock on LOCK held by an ancestor of this shell (/proc/locks: "N: FLOCK ADVISORY WRITE pid maj:min:ino").
+  ino=$(stat -c %i "$LOCK") || not_run "$LOCK missing"
+  holders=$(awk -v ino="$ino" '$2 == "FLOCK" && $4 == "WRITE" { split($6, a, ":"); if (a[3] == ino) print $5 }' /proc/locks | sort -u)
+  anc=" "; p=$$
+  while [ "$p" -gt 1 ]; do anc="$anc$p "; p=$(awk '{print $4}' "/proc/$p/stat" 2>/dev/null) || break; done
+  HOLDER=; for h in $holders; do case "$anc" in *" $h "*) HOLDER=$h ;; esac; done
+  [ -n "$HOLDER" ] || not_run "$LOCK held by pid(s) '${holders}', none an ancestor of $$ ($anc)"
+  [ -z "${DRA65_TEST_LOCK:-}" ] || not_run "test lock $LOCK held by ancestor $HOLDER; DRA65_TEST_LOCK never reaches the chip"
+  # 2. Steps known; red receipts there for the green steps.
+  total=0; have_red=0
+  for s in "${STEPS[@]}"; do
+    step_def "$s" || die "unknown step $s (see: $0 plan)"
+    total=$((total + EST)); case $s in 1|2) have_red=1 ;; esac
+  done
+  for s in "${STEPS[@]}"; do case $s in 3|4|5)
+    [ $have_red = 1 ] || { [ -f "$OUT/1/golden-receipt.json" ] && [ -f "$OUT/2/golden-receipt.json" ]; } \
+      || not_run "step $s needs the red receipts $OUT/1 and $OUT/2 (run steps 1 and 2 first)" ;; esac
+  done
+  # 3. The lease has room for the steps' estimates.
+  lease=$(cat "${SPARK_WINDOW_DIR:-/nonexistent}/lease" 2>/dev/null); held=$(cat "${SPARK_WINDOW_DIR:-/nonexistent}/held" 2>/dev/null)
+  [ -n "$lease" ] && [ -n "$held" ] || not_run "no lease/held in SPARK_WINDOW_DIR='${SPARK_WINDOW_DIR:-}'"
+  left=$(( $(date -d "$held" +%s) + lease * 60 - $(date +%s) ))
+  [ "$total" -le "$left" ] || not_run "steps ${STEPS[*]} estimate $total s, the lease has $left s left"
+  # 4. Live 35B, Flint and the chip idle; binary, model, port, tools there.
+  PORT=18192; MODEL=$HOME/models/qwen3.6-35b-a3b-fp8-95a723d0
+  for t in curl jq ss flock sha256sum nvidia-smi; do command -v $t > /dev/null || not_run "$t missing"; done
+  for port in 18091 18300 18310 $PORT; do [ -z "$(ss -ltnH "sport = :$port")" ] || not_run "a listener is on $port"; done
+  apps=$(nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv,noheader 2>&1) || not_run "nvidia-smi failed: $apps"
+  [ -z "$apps" ] || not_run "compute apps on the chip: $apps"
+  [ -x "$BIN" ] || not_run "binary $BIN missing"
+  [ -f "$MODEL/config.json" ] || not_run "model $MODEL missing"
+  SHA=$(sha256sum < "$BIN" | cut -c1-64)
+  mkdir -p "$OUT" || not_run "cannot create $OUT"
+  log() { echo "$(date -u +%FT%TZ) $*" | tee -a "$OUT/run.log" >&2; }
+  board() { echo "$(date -u +%FT%TZ) DRA65Prefill: $*" >> "$HOME/handoffs/BOARD.md"; }
+  SERVER=
+  stop_server() {
+    [ -n "$SERVER" ] || return 0
+    kill -TERM "$SERVER" 2>/dev/null
+    for _ in $(seq 60); do kill -0 "$SERVER" 2>/dev/null || break; sleep 1; done
+    kill -KILL "$SERVER" 2>/dev/null; wait "$SERVER" 2>/dev/null; SERVER=
+  }
+  # start_server LOG: DOOR and ENVS from step_def; the live start-35b(-batch).sh flags on a loopback test port.
+  start_server() {
+    local flags=(--max-context 131072)
+    [ "$DOOR" = batch ] && flags=(--max-context 49152 --batch-slots 8)
+    (cd "$(dirname "$BIN")" && exec env AIEN_GB10_LOCK_HELD=1 AIEN_SERVE_GPU_LOCK=/tmp/aien-serve-$PORT.lock AIEN_Q36_STROKE=0 \
+      "${ENVS[@]}" "$BIN" --engine omega --model-dir "$MODEL" --port $PORT --bind 127.0.0.1 \
+      --max-tokens-cap 16384 --thinking off "${flags[@]}") > "$1" 2>&1 &
+    SERVER=$!
+    for _ in $(seq 300); do
+      kill -0 "$SERVER" 2>/dev/null || { log "server exited during load: $1"; SERVER=; return 1; }
+      curl -s -m 2 127.0.0.1:$PORT/health > /dev/null && break; sleep 1
+    done
+    curl -s -m 2 127.0.0.1:$PORT/health > /dev/null || { log "server not healthy in 300 s"; stop_server; return 1; }
+    local l; l=$(ss -ltnH "sport = :$PORT" | awk '{print $4}')
+    if [ -z "$l" ] || echo "$l" | grep -qv '^127\.0\.0\.1:'; then log "listener check FAILED on $PORT: $l"; stop_server; return 1; fi
+  }
+  trap 'stop_server; board "GPU-END dra-65 window-dra65.sh window $WIN steps ${STEPS[*]} -> $OUT (rc ${RC:-?})"' EXIT
+  trap 'log "interrupted"; exit 4' INT TERM
+  board "GPU-START dra-65 window-dra65.sh window $WIN steps ${STEPS[*]} (est $total s, lease left $left s; gb10 lock held by our pid $HOLDER; bin $SHA)"
+  log "window $WIN lock holder $HOLDER bin $BIN sha256 $SHA steps ${STEPS[*]} est $total s left $left s"
+  RC=0
+  for s in "${STEPS[@]}"; do
+    step_def "$s"; D=$OUT/$s; mkdir -p "$D"; t0=$(date +%s)
+    log "step $s: $DOOR door, env '${ENVS[*]:-}', $PROBE, est $EST s"
+    if start_server "$D/server.log"; then
+      ready=$(( $(date +%s) - t0 ))
+      read -r kind a1 a2 <<<"$PROBE"
+      if [ "$kind" = golden ]; then
+        args=(golden $PORT "$D" "$a1" "$SHA" "$a2")
+        [ "$a1" = green ] && args+=("$OUT/1/golden-receipt.json" "$OUT/2/golden-receipt.json")
+      else
+        args=(time $PORT "$D" "$SHA" "$a1")
+      fi
+      bash "$SELF" "${args[@]}" > "$D/probe.out"; RC=$?
+      stop_server
+    else
+      ready=-1; RC=3
+    fi
+    el=$(( $(date +%s) - t0 ))
+    pj=$(tail -n 1 "$D/probe.out" 2>/dev/null | jq -c . 2>/dev/null); [ -n "$pj" ] || pj=null
+    jq -cn --arg s "$s" --arg w "$WIN" --arg b "$BIN" --arg h "$SHA" --arg d "$DOOR" --arg e "${ENVS[*]:-}" --arg p "$PROBE" \
+      --argjson est $EST --argjson ready $ready --argjson el $el --argjson rc $RC --arg hold "$HOLDER" --arg at "$(date -u +%FT%TZ)" \
+      --argjson probe "$pj" \
+      '{step:$s, window:$w, bin:$b, bin_sha256:$h, door:$d, env:$e, probe:$p, est_s:$est, server_ready_s:$ready, elapsed_s:$el, rc:$rc, lock_holder:$hold, at:$at, result:$probe}' \
+      | tee "$D/step-receipt.json"
+    [ $RC = 0 ] || { log "step $s rc $RC: stopping"; exit $RC; }
+  done
+  exit 0 ;;
+esac
+
+[ -n "${SPARK_WINDOW:-}" ] || not_run "no SPARK_WINDOW: the probes run from '$0 run' inside a window"
 WIN=$SPARK_WINDOW
 MODE=${1:-}; PORT=${2:-}; OUT=${3:-}
 [ -n "$MODE" ] && [ -n "$PORT" ] && [ -n "$OUT" ] || die "usage: see the header"
@@ -140,5 +261,5 @@ time)
   done
   if [ $ok = 1 ]; then jq -cn --arg win "$WIN" --arg b "$BIN" --arg l "$LABEL" '{case:"time", verdict:"RECORDED", window:$win, bin_sha256:$b, label:$l}'; exit 0; fi
   jq -cn --arg win "$WIN" --arg b "$BIN" --arg l "$LABEL" '{case:"time", verdict:"INCONCLUSIVE", window:$win, bin_sha256:$b, label:$l, why:"a run had no HTTP 200, no first content delta or no usage"}'; exit 2 ;;
-*) die "mode golden|time" ;;
+*) die "mode plan|run|golden|time" ;;
 esac
