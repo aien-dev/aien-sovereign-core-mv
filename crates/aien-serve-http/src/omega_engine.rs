@@ -29,6 +29,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use aien_inference_abi::qwen3_moe_omega::{self as omega, LoadReport, OmegaEngine, WeightFormat};
+use aien_inference_abi::qwen3_moe_omega::{
+    PrefillGrowth, WholePromptFootprint, SCRATCH_BYTES_PER_TOKEN,
+};
 
 use crate::engine::{Engine, EngineError, FinishReason, GenerateOutcome, GenerateParams};
 use crate::kv_persist::PersistState;
@@ -41,6 +44,47 @@ pub const LOCK_WAIT: Duration = Duration::from_secs(30);
 /// Host memory the load needs free (the model is 30.5 GB resident plus the KV pool and
 /// loader transients; the rule leaves room for another 30 GB job).
 pub const LOAD_MIN_FREE_GB: f64 = 45.0;
+/// Host memory a prefill must leave free (the box also runs the other model, builds and tests).
+pub const ADMIT_RESERVE_BYTES: u64 = 6 << 30;
+/// Environment override of tokens per whole-prompt pass (`0` = the whole prompt in one pass).
+pub const WP_CHUNK_ENV: &str = "AIEN_SERVE_WP_CHUNK";
+
+/// `MemAvailable` from `/proc/meminfo` text, bytes.
+pub fn parse_mem_available(meminfo: &str) -> Option<u64> {
+    let line = meminfo.lines().find(|l| l.starts_with("MemAvailable:"))?;
+    let kb: u64 = line.split_whitespace().nth(1)?.parse().ok()?;
+    Some(kb * 1024)
+}
+
+/// Admission rule: the prefill's growth plus [`ADMIT_RESERVE_BYTES`] must fit `available`.
+/// `Err` names the numbers and the longest prompt that would pass right now. `None` (meminfo
+/// unreadable) admits.
+pub fn admit_growth(
+    growth: PrefillGrowth,
+    available: Option<u64>,
+    prompt_tokens: usize,
+) -> Result<(), String> {
+    let Some(avail) = available else {
+        return Ok(());
+    };
+    let gb = |b: u64| b as f64 / 1e9;
+    if avail >= growth.total().saturating_add(ADMIT_RESERVE_BYTES) {
+        return Ok(());
+    }
+    let room = avail
+        .saturating_sub(ADMIT_RESERVE_BYTES)
+        .saturating_sub(growth.mirror_bytes);
+    let fits = room / SCRATCH_BYTES_PER_TOKEN;
+    Err(format!(
+        "prompt of {prompt_tokens} tokens needs {:.1} GB more host memory ({:.1} GB KV mirror + {:.1} GB prompt scratch) but only {:.1} GB is available and {:.0} GB must stay free; \
+         retry when memory is free or send at most about {fits} tokens now",
+        gb(growth.total()),
+        gb(growth.mirror_bytes),
+        gb(growth.scratch_bytes),
+        gb(avail),
+        gb(ADMIT_RESERVE_BYTES),
+    ))
+}
 
 /// Prefill path of the door (OWN-30B release candidate, W-RC 2026-10-14). Both switches are ON
 /// by default: the whole prompt goes through omega's prefill GEMMs and attention in one pass
@@ -243,18 +287,24 @@ pub struct OmegaDoor {
     lock_path: PathBuf,
     /// Prompt tokens the last generation reused (RAM or restored prefix).
     reused_last: AtomicUsize,
+    /// The whole-prompt path's resident state after the last generation, for [`Engine::admit`].
+    footprint: std::sync::Mutex<WholePromptFootprint>,
 }
 
 impl OmegaDoor {
     /// A door over an already built engine, taking the GPU lock at `lock_path` around each
     /// generation (tests: a private lock file and the host test engine). Persistence off.
     pub fn from_parts(engine: OmegaEngine, lock_path: PathBuf, lock_wait: Duration) -> Self {
+        let footprint = engine
+            .with_engine(|e| e.whole_prompt_footprint())
+            .unwrap_or_default();
         Self {
             persist: PersistState::Off,
             engine,
             lock_wait,
             lock_path,
             reused_last: AtomicUsize::new(0),
+            footprint: std::sync::Mutex::new(footprint),
         }
     }
 
@@ -361,6 +411,10 @@ impl OmegaDoor {
         engine.with_engine(|e| -> Result<(), String> {
             e.set_whole_prompt(prefill.whole_prompt)
                 .map_err(|m| format!("{m} (start with --whole-prompt off to use the chunked prefill)"))?;
+            if let Ok(v) = std::env::var(WP_CHUNK_ENV) {
+                let n: usize = v.trim().parse().map_err(|_| format!("{WP_CHUNK_ENV} must be a token count (0 = one pass), got {v:?}"))?;
+                e.set_whole_prompt_chunk(n);
+            }
             if prefill.whole_prompt {
                 e.set_whole_prompt_device_host(prefill.device_host)
                     .map_err(|m| format!("{m} (start with --prefill-device-host off to keep routing on the host)"))?;
@@ -428,6 +482,20 @@ impl Engine for OmegaDoor {
         self.engine.max_context_tokens()
     }
 
+    fn admit(&self, prompt: &[u32]) -> Result<(), String> {
+        // Priced on the whole prompt (the reused prefix is unknown without the engine lock):
+        // a pass is capped at the chunk, so this only over-counts prompts shorter than one.
+        let growth = self
+            .footprint
+            .lock()
+            .map_err(|e| e.to_string())?
+            .growth(prompt.len());
+        let available = std::fs::read_to_string("/proc/meminfo")
+            .ok()
+            .and_then(|m| parse_mem_available(&m));
+        admit_growth(growth, available, prompt.len())
+    }
+
     fn generate(
         &self,
         prompt: &[u32],
@@ -444,6 +512,7 @@ impl Engine for OmegaDoor {
                 max,
             });
         }
+        self.admit(prompt).map_err(EngineError::Failed)?;
         let q = omega::GenerateParams {
             max_new_tokens: p.max_new_tokens,
             temperature: p.temperature,
@@ -499,6 +568,11 @@ impl Engine for OmegaDoor {
                 .with_engine(|e| pk.snapshot(e))
                 .unwrap_or_default()
         });
+        if let Ok(fp) = self.engine.with_engine(|e| e.whole_prompt_footprint()) {
+            if let Ok(mut slot) = self.footprint.lock() {
+                *slot = fp;
+            }
+        }
         drop(lock);
         if let (Some(pk), Some(items)) = (persist, parked) {
             pk.submit(items);
@@ -638,5 +712,76 @@ mod tests {
         assert!(PrefillMode::from_env(Some("of"), None).is_err());
         assert!(parse_switch("--whole-prompt", "maybe").is_err());
         assert!(parse_switch("--whole-prompt", " TRUE ").unwrap());
+    }
+
+    const GB: u64 = 1 << 30;
+    /// 30B at 131,072 positions: 48 layers x 256 MiB (live smaps, ledger L884).
+    const KV_BYTES: u64 = 48 * 256 * (1 << 20);
+
+    fn cold() -> WholePromptFootprint {
+        WholePromptFootprint {
+            on: true,
+            mirror_live: false,
+            scratch_tokens: 0,
+            kv_bytes: KV_BYTES,
+            chunk: 8192,
+        }
+    }
+
+    #[test]
+    fn mem_available_is_read_from_meminfo_text() {
+        let t = "MemTotal:       126000000 kB\nMemFree:  1 kB\nMemAvailable:   39000000 kB\nBuffers: 1 kB\n";
+        assert_eq!(parse_mem_available(t), Some(39_000_000 * 1024));
+        assert_eq!(parse_mem_available("MemTotal: 1 kB\n"), None);
+        assert_eq!(parse_mem_available("MemAvailable: lots kB\n"), None);
+    }
+
+    #[test]
+    fn the_live_incident_is_refused_with_the_numbers_and_a_limit() {
+        // 14:24Z: a 66k-token prompt arrived with ~11 GB available and nothing warm yet.
+        let g = cold().growth(66_000);
+        let err = admit_growth(g, Some(11 * GB), 66_000).unwrap_err();
+        assert!(err.contains("66000 tokens"), "{err}");
+        assert!(err.contains("KV mirror"), "{err}");
+        assert!(
+            err.contains("11.8 GB is available") || err.contains("GB is available"),
+            "{err}"
+        );
+        assert!(err.contains("6 GB must stay free"), "{err}");
+        assert!(err.contains("at most about 0 tokens"), "{err}");
+    }
+
+    #[test]
+    fn a_warm_server_admits_any_chunked_prompt_even_when_memory_is_low() {
+        let warm = WholePromptFootprint {
+            mirror_live: true,
+            scratch_tokens: 8192,
+            ..cold()
+        };
+        assert_eq!(warm.growth(120_000), PrefillGrowth::default());
+        assert!(admit_growth(warm.growth(120_000), Some(7 * GB), 120_000).is_ok());
+    }
+
+    #[test]
+    fn admission_keeps_the_reserve_and_names_how_many_tokens_fit() {
+        let g = cold().growth(8192);
+        let need = g.total() + ADMIT_RESERVE_BYTES;
+        assert!(admit_growth(g, Some(need), 8192).is_ok());
+        let err = admit_growth(g, Some(need - 1), 8192).unwrap_err();
+        assert!(err.contains("retry when memory is free"), "{err}");
+        // 19 GB free, mirror takes 12: (19 - 6 - 12) GB / 240 KiB per token.
+        let err = admit_growth(g, Some(19 * GB), 8192).unwrap_err();
+        let fits = GB / SCRATCH_BYTES_PER_TOKEN;
+        assert!(err.contains(&format!("about {fits} tokens")), "{err}");
+    }
+
+    #[test]
+    fn unreadable_meminfo_and_a_switched_off_path_admit() {
+        assert!(admit_growth(cold().growth(66_000), None, 66_000).is_ok());
+        let off = WholePromptFootprint {
+            on: false,
+            ..cold()
+        };
+        assert_eq!(off.growth(66_000), PrefillGrowth::default());
     }
 }

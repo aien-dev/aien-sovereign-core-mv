@@ -511,6 +511,17 @@ fn prompt_that_fills_the_context_is_refused() {
 }
 
 #[test]
+fn prompt_the_memory_cannot_hold_is_refused_with_413_and_the_limit() {
+    let why = "prompt of 66000 tokens needs 13.9 GB more host memory but only 9.0 GB is available; send at most about 0 tokens now";
+    let srv = start(stub("x").with_admit_refusal(why), ServerConfig::default());
+    let r = chat(srv.addr, PROMPT);
+    assert_eq!(r.status, 413, "{}", r.body);
+    let j = json(&r);
+    assert_eq!(j["error"]["code"], "prompt_exceeds_memory_budget");
+    assert_eq!(j["error"]["message"], why);
+}
+
+#[test]
 fn non_loopback_bind_is_refused() {
     let rt = tokio::runtime::Runtime::new().unwrap();
     let cfg = ServerConfig {

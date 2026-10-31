@@ -415,6 +415,12 @@ impl<D: PrefillDevice> WholePromptPrefill<D> {
         Ok(total)
     }
 
+    /// Tokens the prompt-sized scratch is sized for (0 before the first pass). The scratch is
+    /// kept between passes and only regrown, so this is its high-water mark.
+    pub fn scratch_tokens(&self) -> usize {
+        self.bufs.as_ref().map_or(0, |b| b.m)
+    }
+
     fn ensure(&mut self, c: &Qwen3MoeConfig, m: usize, dev_attn: bool) -> Result<(), String> {
         let bm = self.dev.qgemm_bm();
         if let Some(b) = &self.bufs {

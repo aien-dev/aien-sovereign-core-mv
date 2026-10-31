@@ -154,6 +154,14 @@ impl ApiError {
         }
     }
 
+    /// The prompt would not fit the free host memory (413, the limit is in the message).
+    fn memory_exceeded(msg: impl Into<String>) -> Self {
+        let mut e = Self::bad_request(msg);
+        e.status = StatusCode::PAYLOAD_TOO_LARGE;
+        e.body.error.code = Some("prompt_exceeds_memory_budget".into());
+        e
+    }
+
     fn context_exceeded(msg: impl Into<String>) -> Self {
         let mut e = Self::bad_request(msg);
         e.body.error.code = Some("context_length_exceeded".into());
@@ -1069,6 +1077,10 @@ fn prepare(state: &AppState, req: ChatRequest) -> Result<Prepared, ApiError> {
             ctx
         )));
     }
+    state
+        .engine
+        .admit(&prompt_tokens)
+        .map_err(ApiError::memory_exceeded)?;
     let requested = match req.max_tokens.or(req.max_completion_tokens) {
         Some(v) if v < 1 => return Err(ApiError::bad_request("max_tokens must be at least 1")),
         Some(v) => v as usize,

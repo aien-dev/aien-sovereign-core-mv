@@ -116,6 +116,12 @@ pub trait Engine: Send + Sync {
         params: &GenerateParams,
         on_token: &mut dyn FnMut(u32) -> bool,
     ) -> Result<GenerateOutcome, EngineError>;
+    /// Memory admission, asked before the generation lock: `Err(why)` when `prompt` would need
+    /// more host memory than the machine has free, so the server can answer with a clear 4xx
+    /// instead of letting the kernel OOM-kill the process. The default admits everything.
+    fn admit(&self, _prompt: &[u32]) -> Result<(), String> {
+        Ok(())
+    }
     /// Persistent KV status and counters for `/health` (sc#505). `None` (the default, and the
     /// omega door with `AIEN_KV_STORE_DIR` unset) leaves `/health` exactly as it was.
     fn persistence_status(&self) -> Option<serde_json::Value> {
@@ -314,6 +320,8 @@ pub struct StubEngine {
     reply: Vec<u32>,
     per_token_delay: Duration,
     max_context: usize,
+    /// `Some(why)`: [`Engine::admit`] refuses every prompt (tests the memory-refusal answer).
+    admit_refusal: Option<String>,
 }
 
 impl StubEngine {
@@ -322,6 +330,7 @@ impl StubEngine {
             reply,
             per_token_delay: Duration::ZERO,
             max_context: 4096,
+            admit_refusal: None,
         }
     }
 
@@ -334,11 +343,20 @@ impl StubEngine {
         self.max_context = max_context;
         self
     }
+
+    pub fn with_admit_refusal(mut self, why: &str) -> Self {
+        self.admit_refusal = Some(why.to_string());
+        self
+    }
 }
 
 impl Engine for StubEngine {
     fn kind(&self) -> &str {
         "stub"
+    }
+
+    fn admit(&self, _prompt: &[u32]) -> Result<(), String> {
+        self.admit_refusal.clone().map_or(Ok(()), Err)
     }
 
     fn max_context_tokens(&self) -> usize {
