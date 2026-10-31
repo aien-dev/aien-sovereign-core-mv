@@ -355,10 +355,17 @@ const READ_LIMIT: u64 = 8 * 1024 * 1024;
 fn read_all(file: &mut File) -> Result<Vec<u8>, BindError> {
     file.seek(SeekFrom::Start(0))
         .map_err(|e| BindError::Failed(e.to_string()))?;
+    read_capped(file, READ_LIMIT)
+}
+
+/// Read at most `limit + 1` bytes from `src` and refuse the read if that
+/// extra byte arrives, so a large or growing file is never buffered whole.
+fn read_capped(src: &mut impl Read, limit: u64) -> Result<Vec<u8>, BindError> {
     let mut buf = Vec::new();
-    file.read_to_end(&mut buf)
+    src.take(limit + 1)
+        .read_to_end(&mut buf)
         .map_err(|e| BindError::Failed(e.to_string()))?;
-    if buf.len() as u64 > READ_LIMIT {
+    if buf.len() as u64 > limit {
         return Err(BindError::Denied(
             "refusing the file: it is larger than the read limit".into(),
         ));
@@ -1244,6 +1251,64 @@ mod tests {
         assert!(fresh_swap_read_is_inside(INSIDE));
         assert!(!fresh_swap_read_is_inside(OTHER));
         assert!(!fresh_swap_read_is_inside(OUTSIDE));
+    }
+
+    #[test]
+    fn read_all_accepts_the_limit_and_refuses_one_byte_more() {
+        let dir = tempfile::tempdir_in("/tmp").unwrap();
+        let path = dir.path().join("f");
+        let at_limit = vec![b'a'; READ_LIMIT as usize];
+        std::fs::write(&path, &at_limit).unwrap();
+        let mut f = File::open(&path).unwrap();
+        let got = read_all(&mut f).expect("a file of exactly READ_LIMIT bytes is read");
+        assert_eq!(got.len() as u64, READ_LIMIT);
+
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap()
+            .write_all(b"a")
+            .unwrap();
+        let mut f = File::open(&path).unwrap();
+        assert!(
+            matches!(read_all(&mut f), Err(BindError::Denied(_))),
+            "a file of READ_LIMIT + 1 bytes must be refused"
+        );
+    }
+
+    /// An endless source that panics once a caller pulls more than
+    /// `budget` bytes from it. An unbounded read trips the panic.
+    struct Endless {
+        served: u64,
+        budget: u64,
+    }
+
+    impl Read for Endless {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            buf.fill(b'z');
+            self.served += buf.len() as u64;
+            assert!(
+                self.served <= self.budget,
+                "read past the cap: {} bytes pulled, budget {}",
+                self.served,
+                self.budget
+            );
+            Ok(buf.len())
+        }
+    }
+
+    #[test]
+    fn read_capped_stops_one_byte_past_the_limit_on_an_endless_source() {
+        let limit = 4096;
+        let mut src = Endless {
+            served: 0,
+            budget: limit + 1,
+        };
+        assert!(matches!(
+            read_capped(&mut src, limit),
+            Err(BindError::Denied(_))
+        ));
+        assert_eq!(src.served, limit + 1, "exactly limit + 1 bytes are pulled");
     }
 
     fn swap_dir(dir: &Path, elsewhere: &Path) {

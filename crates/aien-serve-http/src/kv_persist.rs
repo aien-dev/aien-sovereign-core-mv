@@ -570,7 +570,7 @@ pub fn checkpoint_digest(model_dir: &Path) -> Result<([u8; 32], &'static str), S
 /// Whether `config.json` in `model_dir` sets a non-null `rope_scaling`.
 pub fn config_has_rope_scaling(model_dir: &Path) -> Result<bool, String> {
     let p = model_dir.join("config.json");
-    let text = std::fs::read_to_string(&p).map_err(|e| format!("{}: {e}", p.display()))?;
+    let text = crate::read_model_text(&p).map_err(|e| format!("{}: {e}", p.display()))?;
     let v: serde_json::Value =
         serde_json::from_str(&text).map_err(|e| format!("{}: {e}", p.display()))?;
     Ok(v.get("rope_scaling").is_some_and(|r| !r.is_null()))

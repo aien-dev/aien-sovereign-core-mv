@@ -454,14 +454,14 @@ fn snapshot_entries(dirfd: libc::c_int) -> std::io::Result<Vec<(String, u64)>> {
     }
     let mut out = Vec::new();
     let walked = loop {
-        unsafe { *libc::__errno_location() = 0 };
+        clear_errno();
         let ent = unsafe { libc::readdir(dir) };
         if ent.is_null() {
-            let errno = unsafe { *libc::__errno_location() };
-            break if errno == 0 {
-                Ok(())
-            } else {
-                Err(std::io::Error::from_raw_os_error(errno))
+            // A null readdir is end of directory when errno is still 0.
+            let err = std::io::Error::last_os_error();
+            break match err.raw_os_error() {
+                None | Some(0) => Ok(()),
+                Some(_) => Err(err),
             };
         }
         let name_c = unsafe { std::ffi::CStr::from_ptr((*ent).d_name.as_ptr()) };
@@ -495,6 +495,24 @@ fn snapshot_entries(dirfd: libc::c_int) -> std::io::Result<Vec<(String, u64)>> {
     unsafe { libc::closedir(dir) };
     walked?;
     Ok(out)
+}
+
+/// Set the calling thread's errno to 0 so a null `readdir` can be told apart
+/// from a failed one. std has no errno setter, so this names the per-OS libc
+/// accessor; reading errno goes through `std::io::Error::last_os_error`.
+fn clear_errno() {
+    #[cfg(any(target_os = "linux", target_os = "emscripten", target_os = "redox"))]
+    let p = unsafe { libc::__errno_location() };
+    #[cfg(any(
+        target_vendor = "apple",
+        target_os = "freebsd",
+        target_os = "dragonfly"
+    ))]
+    let p = unsafe { libc::__error() };
+    #[cfg(any(target_os = "android", target_os = "openbsd", target_os = "netbsd"))]
+    let p = unsafe { libc::__errno() };
+    // SAFETY: each accessor returns the calling thread's errno slot.
+    unsafe { *p = 0 };
 }
 
 fn dup_snapshot_fd(fd: libc::c_int) -> std::io::Result<OwnedFd> {
@@ -847,6 +865,21 @@ pub fn rollback(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn snapshot_entries_ignores_a_stale_errno_at_end_of_directory() {
+        let dir = tempfile::tempdir_in("/tmp").unwrap();
+        std::fs::write(dir.path().join("a"), b"12345").unwrap();
+        let fd = open_snapshot_dir(dir.path()).unwrap();
+        // Leave EBADF in errno; successful calls before readdir keep it.
+        assert_eq!(unsafe { libc::close(-1) }, -1);
+        assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::EBADF)
+        );
+        let got = snapshot_entries(fd.as_raw_fd()).expect("end of directory is not an error");
+        assert_eq!(got, vec![("a".to_string(), 5)]);
+    }
 
     fn entry(
         seq: u64,

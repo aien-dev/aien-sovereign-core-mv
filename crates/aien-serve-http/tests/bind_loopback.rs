@@ -47,8 +47,7 @@ fn binary() -> PathBuf {
 fn empty_model_dir() -> PathBuf {
     static N: AtomicU32 = AtomicU32::new(0);
     let n = N.fetch_add(1, Ordering::Relaxed);
-    let dir =
-        std::env::temp_dir().join(format!("dra47-bind-{}-{n}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("dra47-bind-{}-{n}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     dir
 }
@@ -169,7 +168,9 @@ fn proc_ip(hex: &str) -> IpAddr {
 fn is_loopback(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(v4) => v4.is_loopback(),
-        IpAddr::V6(v6) => v6.is_loopback() || v6.to_ipv4_mapped().is_some_and(|v4| v4.is_loopback()),
+        IpAddr::V6(v6) => {
+            v6.is_loopback() || v6.to_ipv4_mapped().is_some_and(|v4| v4.is_loopback())
+        }
     }
 }
 
@@ -249,7 +250,10 @@ fn default_start_listens_on_ipv4_loopback_only() {
         server.addr.port()
     );
     for (ip, port) in &found {
-        assert!(is_loopback(*ip), "listening on {ip}:{port}, which is not loopback");
+        assert!(
+            is_loopback(*ip),
+            "listening on {ip}:{port}, which is not loopback"
+        );
     }
     assert!(TcpStream::connect_timeout(&server.addr, Duration::from_secs(5)).is_ok());
     match host_non_loopback_ipv4() {
@@ -260,7 +264,9 @@ fn default_start_listens_on_ipv4_loopback_only() {
                 "the server accepted a connection on the host address {outside}"
             );
         }
-        None => eprintln!("no non-loopback IPv4 route on this host; the outside connect check is skipped"),
+        None => eprintln!(
+            "no non-loopback IPv4 route on this host; the outside connect check is skipped"
+        ),
     }
     assert_no_gpu(pid);
 }
@@ -298,7 +304,9 @@ fn listener_table_reader_tells_loopback_from_wildcard() {
         );
     }
     assert!(is_loopback(IpAddr::V4(Ipv4Addr::LOCALHOST)));
-    assert!(is_loopback(IpAddr::V6(Ipv4Addr::LOCALHOST.to_ipv6_mapped())));
+    assert!(is_loopback(IpAddr::V6(
+        Ipv4Addr::LOCALHOST.to_ipv6_mapped()
+    )));
     assert!(!is_loopback(IpAddr::V4(Ipv4Addr::UNSPECIFIED)));
     assert!(!is_loopback(IpAddr::V6(Ipv6Addr::UNSPECIFIED)));
     assert!(!is_loopback(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 1))));
