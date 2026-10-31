@@ -1,0 +1,11 @@
+start 2026-10-31T08:13:18Z window 20261031T081315Z-809e71 gb10_lock_held 1
+sc commit ab77b970ed5c132a2d62b5bedab277a8a1627ec4
+binary /tmp/corechip/t790/release/aien-serve-http sha256 47cb6117e9a37a6ed7b854ff87637564adf8b2a69c99ca91a28b3b63c4ebfaa3
+omega /tmp/corechip/omega905 at d7f1bff90f7e7a449c50ba18ba3859d1f6d9f0cf (omega-mv#905 head), libomega_gpu.a sha256 56da02a36f70b6b388974cb342bf80e586fb656983f9d81e61b568dbb5a434e1, linked as AIEN_OMEGA_GPU_LIB (development override, not a qualified build)
+model /home/drakestapleton/models/qwen3.5-9b-c2022362-fp8b128 bytes 12394969960 admission need_kB 45180445 MemAvailable_kB 100783612
+cmd /tmp/corechip/t790/release/aien-serve-http --engine omega --model-dir /home/drakestapleton/models/qwen3.5-9b-c2022362-fp8b128 --model-id q35-9b-fp8 --max-context 8192 --max-tokens-cap 1024 --thinking off --bind 127.0.0.1 --port 18295
+client python3 /home/drakestapleton/handoffs/HeadToHead/repo/bench/bench.py --port 18295 --model q35-9b-fp8 --arm OURS --round clean --metric agree --prompts /home/drakestapleton/handoffs/HeadToHead/repo/prompts/decode.jsonl --concurrency 1 --max-tokens 128 --warmup 0 --reps 16
+pid, process_name, used_gpu_memory [MiB]
+name, driver_version, utilization.gpu [%], temperature.gpu, power.draw [W], pstate
+NVIDIA GB10, 580.173.02, 0 %, 52, 5.94 W, P8
+client script /tmp/corechip/bench-auth.py sha256 ebd9490a149315bf5f5c6437617fba18093f3843bb8469094be7f2695474e992: HeadToHead bench/bench.py at e430e23f plus one change, an Authorization: Bearer header from AIEN_SERVE_HTTP_BEARER_TOKEN
