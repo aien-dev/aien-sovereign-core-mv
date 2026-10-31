@@ -32,6 +32,23 @@ in fixed groups and `aien-cli` alone and last. That aien-cli digest equals CAND-
 whether that group gives the same aien-cli digest as `-p aien-cli` alone is UNVERIFIED here, and the release does not
 package aien-proof or aien-test.
 
+## Serving engine, built in a container (DRA-43)
+
+`scripts/repro-container-build.sh [--plain] WORK` builds `aien-serve-http` the way the SI installer ships it:
+`libomega_gpu.a` from omega's Makefile at `OMEGA_REV` (physics at that commit's `physics.lock`), linked through
+`AIEN_OMEGA_GPU_LIB` and `AIEN_OMEGA_GPU_LIB_SHA256`, then `scripts/repro-build.sh -p aien-serve-http` from the core
+tree at `CORE_REV`. It runs in the `release/repro/Dockerfile` image (ubuntu 24.04 by digest, rustup-init by sha256,
+Rust from `rust-toolchain.toml`; CPU only, no device) with `WORK` mounted at the same path, and keeps CARGO_HOME,
+CARGO_TARGET_DIR and HOME under `WORK`. Two runs from two `WORK` paths therefore differ only in their paths, and
+their `WORK/out/BUILD-INFO.txt` digests must be equal. `--plain` is the negative control: the same build with plain
+`cargo build --release --locked` (no `--remap-path-prefix`), whose digests differ between paths.
+
+For SI alpha-20261029.1 (core `59b05a71`, omega `6de999da`, physics `6d7cf0d4`), runs from two paths gave
+`libomega_gpu.a` `110295ef23dc7561eea371636347c005835f37b82c22f92401aa8a887a3ca990` (the shipped library) and
+`aien-serve-http` `b6e971976e2fb7d2ae8a6b07d8a015a1f09b4192d4e6fcaa4154ad2a5187575f` both times; the `--plain` runs
+gave `9555c030...` and `7781ae77...`. The remapped engine is not the shipped `19173f9e...`: that binary carries
+241 `/home/.../.cargo/registry/src` paths, which the remap replaces with `/cargo/registry/src`.
+
 ## Package and check
 
 - `scripts/package-release.sh <out.tar.gz>` runs the release gate itself and writes the candidate id and `[model]`
