@@ -1,0 +1,2 @@
+q36-extra: MemAvailable 36 GB < 45 GB, waiting (holding slot 0)
+q36-extra: memory never reached 45 GB (now 30)

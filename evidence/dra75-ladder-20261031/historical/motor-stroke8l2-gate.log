@@ -1,0 +1,28 @@
+2026-10-21T06:09:46Z stroke8l2 gate start bin sha 29ced9accbb1acad lib sha 5418e32dd882b60d V2=1 START=1 TAG=stroke8l2 PROSE=gen-chat-prose2
+2026-10-21T06:11:39Z stroke8l2-mutant4 exit 1: QWEN36_STROKE_GATE heads 8 strokes 97: chip per stroke median 85.691 ms (8 tokens per stroke; shared chip, a receipt only under spark-window); swap none; FAIL
+2026-10-21T06:13:15Z stroke8l2-swap-control exit 1: QWEN36_STROKE_GATE heads 8 strokes 97: chip per stroke median 85.843 ms (8 tokens per stroke; shared chip, a receipt only under spark-window); swap CONTROL at step 18 (expected FAIL); FAIL
+2026-10-21T06:14:52Z stroke8l2-real exit 0: QWEN36_STROKE_GATE heads 8 strokes 97: chip per stroke median 85.428 ms (8 tokens per stroke; shared chip, a receipt only under spark-window); swap none; PASS
+2026-10-21T06:16:29Z stroke8l2-swap-feature exit 0: QWEN36_STROKE_GATE heads 8 strokes 97: chip per stroke median 83.869 ms (8 tokens per stroke; shared chip, a receipt only under spark-window); swap feature at step 18 (expected PASS); PASS
+2026-10-21T06:17:03Z stroke1l2-real exit 0: QWEN36_STROKE_GATE heads 1 strokes 36: chip per stroke median 25.320 ms (1 tokens per stroke; shared chip, a receipt only under spark-window); swap none; PASS
+2026-10-21T06:17:44Z stroke2l2-real exit 0: QWEN36_STROKE_GATE heads 2 strokes 46: chip per stroke median 32.465 ms (2 tokens per stroke; shared chip, a receipt only under spark-window); swap none; PASS
+2026-10-21T06:18:32Z stroke4l2-real exit 0: QWEN36_STROKE_GATE heads 4 strokes 46: chip per stroke median 44.351 ms (4 tokens per stroke; shared chip, a receipt only under spark-window); swap none; PASS
+2026-10-21T06:19:54Z stroke8l2-stamps exit 0: QWEN36_STROKE_GATE heads 8 strokes 97: chip per stroke median 84.076 ms (8 tokens per stroke; shared chip, a receipt only under spark-window); swap none; PASS
+timeline:  gate_up    40 launches    22.840 ms ( 29.4%)
+timeline:     down    40 launches    15.858 ms ( 20.4%)
+timeline:  lm_head     2 launches     9.619 ms ( 12.4%)
+timeline:      gdn   240 launches     7.237 ms (  9.3%)
+timeline:      mix    40 launches     6.502 ms (  8.4%)
+timeline:     attn    80 launches     5.301 ms (  6.8%)
+timeline:      res   360 launches     2.833 ms (  3.6%)
+timeline:   o_proj    40 launches     2.433 ms (  3.1%)
+timeline:   router    40 launches     2.131 ms (  2.7%)
+timeline:     perm   370 launches     1.500 ms (  1.9%)
+timeline:    group    40 launches     0.509 ms (  0.7%)
+timeline:       ab    30 launches     0.420 ms (  0.5%)
+timeline:     gate    80 launches     0.221 ms (  0.3%)
+timeline:   argmax    16 launches     0.138 ms (  0.2%)
+timeline:   swiglu    40 launches     0.126 ms (  0.2%)
+timeline:   gather    10 launches     0.059 ms (  0.1%)
+timeline:     norm     1 launches     0.012 ms (  0.0%)
+timeline: total 77.738 ms over 1469 launches (last stroke)
+2026-10-21T06:19:54Z stroke8l2 gate done

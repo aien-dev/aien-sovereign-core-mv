@@ -1,0 +1,25 @@
+# tests/gates/sc-stamps-timeline.gate
+# DRA-75 (aien-dev/aien-sovereign-core-mv#869): om/timeline/timeline.om, built with the omc pinned in
+# om/timeline/omega.pin, parses the qwen36_stroke_gate AIEN_STROKE_STAMPS=1 timeline block. The historical
+# stamps logs must parse to their json-derived per-class TSVs; malformed or inconsistent blocks (misspelled
+# kind, column shift, launch sum, percentage, unclosed, two blocks, duplicate, order, wrong N, no timeline)
+# must refuse with their exit codes. AIEN_OMC unset or not the pinned omc is NOT_RUN (exit 77), never PASS.
+gate: SC-STAMPS-TIMELINE
+manifest_version: 2
+owner: aien-sovereign-core
+requires:
+  - host
+inputs:
+  - om/timeline/
+  - evidence/motor-chip-20261021/
+  - evidence/dra75-ladder-20261031/historical/
+  - tests/gates/
+run:
+  exec: tests/gates/run.sh
+  args: ["timeline"]
+expects:
+  exit: 0
+  verdict: PASS
+timeout: 5m
+exactness: EXACT
+cache_scope: machine

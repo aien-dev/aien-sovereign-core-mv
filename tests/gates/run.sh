@@ -178,6 +178,9 @@ case "$step" in
   # No hosted mirror (the checkpoint is host-only). SC-EXPERT-BYTES (DRA-63, #855): per-expert bytes of the
   # Qwen3.6-35B-A3B-FP8 headers, layers 0-39, by seeded Omega; width 768 and FP32 scales must go red.
   expert-bytes)        bash om/expert-bytes/gate.sh ;;
+  # SC-STAMPS-TIMELINE (DRA-75, #869): the stroke gate's AIEN_STROKE_STAMPS timeline block parsed by seeded
+  # Omega; per-class TSVs must equal the json-derived fixtures and malformed/inconsistent blocks must refuse.
+  timeline)            bash om/timeline/gate.sh ;;
   # hardening.yml
   kv-props)
     cargo fetch --manifest-path crates/aien-replay/Cargo.toml
