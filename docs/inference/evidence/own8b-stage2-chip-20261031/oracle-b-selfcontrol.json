@@ -1,0 +1,46 @@
+{
+  "agree": 160,
+  "checkpoint": "/home/drakestapleton/models/qwen3-8b-fp8",
+  "golden": "docs/campaigns/open-model-qwen3/SMOKE-8B-FP8-v1.golden.json",
+  "overall": 1.0,
+  "prompts": [
+    {
+      "agree": 32,
+      "first_disagreement": null,
+      "name": "p1-one-token",
+      "rate": 1.0,
+      "scored": 32
+    },
+    {
+      "agree": 32,
+      "first_disagreement": null,
+      "name": "p2-short",
+      "rate": 1.0,
+      "scored": 32
+    },
+    {
+      "agree": 32,
+      "first_disagreement": null,
+      "name": "p3-medium",
+      "rate": 1.0,
+      "scored": 32
+    },
+    {
+      "agree": 32,
+      "first_disagreement": null,
+      "name": "p4-code",
+      "rate": 1.0,
+      "scored": 32
+    },
+    {
+      "agree": 32,
+      "first_disagreement": null,
+      "name": "p5-512",
+      "rate": 1.0,
+      "scored": 32
+    }
+  ],
+  "scored": 160,
+  "verdict": "PASS",
+  "worst_prompt": 1.0
+}
