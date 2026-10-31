@@ -82,14 +82,14 @@
           "purpose": "ALLEN persona profile v1: versioned, user-editable profile bound to the engaged ALLEN identity; "
         },
         {
-          "digest": "74fa71b0129d64534dfede324b2684b3b10a5ab4cb24821918d2d786c0c292dc",
-          "last_commit": "22b2b8f8",
+          "digest": "a8a577c77d9c511bce408fc5251c4c0e1c39fb739a3ad254b35a366f6ec4e716",
+          "last_commit": "a10c293e",
           "name": "crates/aien-cli",
           "purpose": ""
         },
         {
           "digest": "3a331fee49e858953c344a75e26558ac2288bca4b335eed2f2702dfd77379e8e",
-          "last_commit": "",
+          "last_commit": "e728371b",
           "name": "crates/aien-heartbeat",
           "purpose": "Expert Heartbeat H1 (aienix#4): fixed-slot versioned ring streaming MoE expert weights from NVMe"
         },
@@ -101,38 +101,38 @@
         },
         {
           "digest": "a684b3e7bb1d356b05a499af3962db5b12b37d565bf9bfdf31de6188af457131",
-          "last_commit": "e8cc3aa0",
+          "last_commit": "53beb962",
           "name": "crates/spark-cockpit-rs",
           "purpose": ""
         },
         {
           "digest": "f84780fa891f458ab56b40432a7ca3666e01783639585cdd282b73d508c1a038",
-          "last_commit": "e8cc3aa0",
+          "last_commit": "0a4e42b1",
           "name": "scripts",
           "purpose": ""
         },
         {
           "digest": "94404d7d51325704277e23d765c765c40de64e937bce1c6a2f6d5864eca7f0d7",
-          "last_commit": "22b2b8f8",
+          "last_commit": "a10c293e",
           "name": "skills",
           "purpose": ""
         },
         {
           "digest": "f3c208d8b9bdd9ad5382af5f1fe9bb2ed9c971a831a017d636c13aaf0e7e1b9e",
-          "last_commit": "2f28ee89",
+          "last_commit": "0998462e",
           "name": "tools/aien-local-ci",
           "purpose": "Local CI sandbox exec contract (C8), aien-run user/caches install, Forgejo trigger hook, health "
         }
       ],
-      "children_root": "sha256:7c95ec84243a4eb90f312b5059aa6f35d8aaeb39873834c4ab41191d33ae0222",
-      "compiled_at": "2026-10-31T02:11:42Z",
+      "children_root": "sha256:d8d26803b934ff319ff725d2d72e5b09a8d8fc18ca878eb3b24c7b635d4c5e10",
+      "compiled_at": "2026-10-31T02:34:34Z",
       "compiler": "crumb-compile/1",
-      "digest": "sha256:a73371a05177f2e299c16284b8e0e8bded7340075f81e95f6717e50b4bc311ee",
+      "digest": "sha256:366ebcfd0c10bff2c1c656c3b3bea01ba93abdb415a6908f580c3a50c8520732",
       "evidence_files": 3602,
       "evidence_root": "sha256:1b8069934a4cc67803874ebd2ad5de32671fae5ccce1a3ea70aeb532fe8ea86b",
-      "files": 8114,
-      "generated_at_commit": "22b2b8f8562d3ae84782bfb6ac484dfa131e0cfd",
-      "source_tree": "sha256:1ea00e006485902e1b8dbdb746d09baac4c13c539bc350b6e830e149850ed2b1"
+      "files": 8117,
+      "generated_at_commit": "a10c293e9f91ad4e9714c3917ed42a82db0b1ec3",
+      "source_tree": "sha256:fbc27bcfec031181348f26960308f485bf427ed8716847758807b03935e078d0"
     }
   },
   "history": [],
