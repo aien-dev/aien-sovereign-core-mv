@@ -137,6 +137,112 @@ fn count(st: &mut FeedStats, s: &PrefillStats) {
     }
 }
 
+/// What a session feeds a prompt into: the model, or a recording fake in the tests.
+pub(crate) trait PromptFeed {
+    fn is_moe(&self) -> bool;
+    fn step_token(&mut self, t: u32) -> Result<(), String>;
+    /// The rows before the snapshot point, for their state only ([`Qwen38Omega::prefill_state`]).
+    fn feed_state(&mut self, tokens: &[u32], chunk: usize) -> Result<PrefillStats, String>;
+    /// At least [`q::GDN_PF_MIN_T`] tokens with the head ([`Qwen38Omega::prefill`]): the logits.
+    fn feed_head(
+        &mut self,
+        tokens: &[u32],
+        chunk: usize,
+    ) -> Result<(Vec<f32>, PrefillStats), String>;
+    fn last_logits(&mut self) -> Result<Vec<f32>, String>;
+}
+
+impl PromptFeed for Qwen38Omega {
+    fn is_moe(&self) -> bool {
+        Qwen38Omega::is_moe(self)
+    }
+
+    fn step_token(&mut self, t: u32) -> Result<(), String> {
+        self.step(t).map(|_| ())
+    }
+
+    fn feed_state(&mut self, tokens: &[u32], chunk: usize) -> Result<PrefillStats, String> {
+        self.prefill_state(tokens, chunk)
+    }
+
+    fn feed_head(
+        &mut self,
+        tokens: &[u32],
+        chunk: usize,
+    ) -> Result<(Vec<f32>, PrefillStats), String> {
+        self.prefill(tokens, chunk)
+            .map(|(_, logits, s)| (logits, s))
+    }
+
+    fn last_logits(&mut self) -> Result<Vec<f32>, String> {
+        self.logits()
+    }
+}
+
+/// Feeds `prompt[from..]` into a state holding `prompt[..from]`: the rows before the snapshot point
+/// without the head, then `snap(m, k)` at that point (its ns, if it took one), then the rest with
+/// the head. Returns the logits after the last token.
+fn feed_prompt<M: PromptFeed>(
+    m: &mut M,
+    prompt: &[u32],
+    from: usize,
+    chunk: usize,
+    st: &mut FeedStats,
+    mut snap: impl FnMut(&mut M, usize) -> Result<Option<u64>, String>,
+) -> Result<Vec<f32>, String> {
+    let mut at = from;
+    // The snapshot point: the last turn header not yet inside the reused prefix.
+    if let Some(k) = snapshot_point(prompt, from) {
+        feed_rows(m, &prompt[from..k], chunk, st)?;
+        at = k;
+        if let Some(t) = snap(m, k)? {
+            st.snapshot_ns = t;
+        }
+    }
+    feed_last(m, &prompt[at..], chunk, st)
+}
+
+/// Feeds `tokens` without the head (no residual read back).
+fn feed_rows<M: PromptFeed>(
+    m: &mut M,
+    tokens: &[u32],
+    chunk: usize,
+    st: &mut FeedStats,
+) -> Result<(), String> {
+    if rows_by_steps(tokens.len(), m.is_moe()) {
+        for &t in tokens {
+            m.step_token(t)?;
+        }
+        st.stepped += tokens.len();
+    } else {
+        let s = m.feed_state(tokens, chunk)?;
+        count(st, &s);
+    }
+    Ok(())
+}
+
+/// Feeds `tokens` (at least one) and returns the logits after the last.
+fn feed_last<M: PromptFeed>(
+    m: &mut M,
+    tokens: &[u32],
+    chunk: usize,
+    st: &mut FeedStats,
+) -> Result<Vec<f32>, String> {
+    if tokens.is_empty() {
+        return Err("qwen38 session: nothing to feed".into());
+    }
+    if tokens.len() >= q::GDN_PF_MIN_T {
+        let (logits, s) = m.feed_head(tokens, chunk)?;
+        count(st, &s);
+        return Ok(logits);
+    }
+    for &t in tokens {
+        m.step_token(t)?;
+    }
+    st.stepped += tokens.len();
+    m.last_logits()
+}
+
 /// The resident model plus the token record of its live state and of its snapshot.
 #[derive(Debug)]
 pub struct Qwen38Session {
@@ -233,56 +339,27 @@ impl Qwen38Session {
         }
         let from = self.history.len();
         st.fed = prompt.len() - from;
-        // The snapshot point: the last turn header not yet inside the reused prefix.
-        if let Some(k) = snapshot_point(prompt, from) {
-            self.feed_rows(&prompt[from..k], &mut st)?;
-            if self.snap_tokens.as_deref() != Some(&prompt[..k]) && k > 0 {
+        let (snap, snap_tokens) = (&mut self.snap, &mut self.snap_tokens);
+        let logits = feed_prompt(
+            &mut self.model,
+            prompt,
+            from,
+            self.chunk,
+            &mut st,
+            |m, k| {
+                if k == 0 || snap_tokens.as_deref() == Some(&prompt[..k]) {
+                    return Ok(None);
+                }
                 let t = Instant::now();
-                self.snap_tokens = None;
-                self.model.snapshot(&mut self.snap)?;
-                self.snap_tokens = Some(prompt[..k].to_vec());
-                st.snapshot_ns = ns(t);
-            }
-        }
-        let rest = &prompt[self.history.len()..];
-        let logits = self.feed_last(rest, &mut st)?;
+                *snap_tokens = None;
+                m.snapshot(snap)?;
+                *snap_tokens = Some(prompt[..k].to_vec());
+                Ok(Some(ns(t)))
+            },
+        )?;
+        self.history.extend_from_slice(&prompt[from..]);
         st.wall_ns = ns(t0);
         Ok((logits, st))
-    }
-
-    /// Feeds `tokens` without the head (no residual read back).
-    fn feed_rows(&mut self, tokens: &[u32], st: &mut FeedStats) -> Result<(), String> {
-        if rows_by_steps(tokens.len(), self.model.is_moe()) {
-            for &t in tokens {
-                self.model.step(t)?;
-            }
-            st.stepped += tokens.len();
-        } else {
-            let s = self.model.prefill_state(tokens, self.chunk)?;
-            count(st, &s);
-        }
-        self.history.extend_from_slice(tokens);
-        Ok(())
-    }
-
-    /// Feeds `tokens` (at least one) and returns the logits after the last.
-    fn feed_last(&mut self, tokens: &[u32], st: &mut FeedStats) -> Result<Vec<f32>, String> {
-        if tokens.is_empty() {
-            return Err("qwen38 session: nothing to feed".into());
-        }
-        let logits = if tokens.len() >= q::GDN_PF_MIN_T {
-            let (_, logits, s) = self.model.prefill(tokens, self.chunk)?;
-            count(st, &s);
-            logits
-        } else {
-            for &t in tokens {
-                self.model.step(t)?;
-            }
-            st.stepped += tokens.len();
-            self.model.logits()?
-        };
-        self.history.extend_from_slice(tokens);
-        Ok(logits)
     }
 
     /// Feeds one reply token through the decode graph without reading the logits: the graph's
@@ -324,6 +401,7 @@ impl Qwen38Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::qwen38_omega::prefill::{q36_chunk_walk, q36_state, Q36Feed};
 
     #[test]
     fn reuse_takes_the_longest_strict_prefix() {
@@ -417,5 +495,146 @@ mod tests {
         }
         assert!(rows_by_steps(2, false));
         assert!(!rows_by_steps(q::GDN_PF_MIN_T, false));
+    }
+
+    /// Records every token the feed path hands over, with the position it lands at and how
+    /// (`s` decode step, `r` state chunk, `h` chunk with the head), through the same routing as
+    /// the 35B: [`q36_state`] for the rows, [`q36_chunk_walk`] for every chunk run.
+    struct Fake {
+        c: usize,
+        pos: usize,
+        fed: Vec<(usize, u32, char)>,
+        chunks: Vec<usize>,
+    }
+
+    impl Fake {
+        fn take(&mut self, tokens: &[u32], pos: usize, how: char) -> Result<(), String> {
+            if pos != self.pos {
+                return Err(format!("fed at {pos}, the state is at {}", self.pos));
+            }
+            for &t in tokens {
+                self.fed.push((self.pos, t, how));
+                self.pos += 1;
+            }
+            Ok(())
+        }
+
+        fn walk(&mut self, tokens: &[u32], chunk: usize, how: char) -> Result<usize, String> {
+            let pos0 = self.pos;
+            let (n, end) = q36_chunk_walk(tokens, chunk, pos0, |c, pos, _| {
+                self.chunks.push(c.len());
+                self.take(c, pos, how)
+            })?;
+            assert_eq!(end, self.pos);
+            Ok(n)
+        }
+    }
+
+    impl Q36Feed for Fake {
+        fn q36_step(&mut self, t: u32) -> Result<(), String> {
+            let p = self.pos;
+            self.take(&[t], p, 's')
+        }
+
+        fn q36_chunks(&mut self, tokens: &[u32], chunk: usize) -> Result<usize, String> {
+            self.walk(tokens, chunk, 'r')
+        }
+    }
+
+    impl PromptFeed for Fake {
+        fn is_moe(&self) -> bool {
+            true
+        }
+
+        fn step_token(&mut self, t: u32) -> Result<(), String> {
+            self.q36_step(t)
+        }
+
+        fn feed_state(&mut self, tokens: &[u32], _chunk: usize) -> Result<PrefillStats, String> {
+            let c = self.c;
+            let chunks = q36_state(self, tokens, c)?;
+            Ok(PrefillStats {
+                tokens: tokens.len(),
+                chunks,
+                ..Default::default()
+            })
+        }
+
+        fn feed_head(
+            &mut self,
+            tokens: &[u32],
+            _chunk: usize,
+        ) -> Result<(Vec<f32>, PrefillStats), String> {
+            let mut chunks = 0;
+            if self.c == 0 {
+                for &t in tokens {
+                    self.q36_step(t)?;
+                }
+            } else {
+                let c = self.c;
+                chunks = self.walk(tokens, c, 'h')?;
+            }
+            let s = PrefillStats {
+                tokens: tokens.len(),
+                chunks,
+                ..Default::default()
+            };
+            Ok((vec![0.0], s))
+        }
+
+        fn last_logits(&mut self) -> Result<Vec<f32>, String> {
+            Ok(vec![0.0])
+        }
+    }
+
+    /// DRA-65: through the session's feed path every prompt token past the reused prefix is fed
+    /// exactly once, in order, at its own position, across chunk boundaries and from a cached
+    /// prefix that ends mid-chunk; the snapshot is taken right after the rows; with chunking on
+    /// no row is stepped, with `AIEN_Q36_PREFILL_CHUNK=0` every token is.
+    #[test]
+    fn every_prompt_token_is_fed_once_in_order() {
+        let cap = q::q36::PREFILL_MAX_ROWS;
+        for c in [cap, 0] {
+            for len in [1, cap - 1, cap, cap + 1, 2 * cap + 3] {
+                // 61: a cached prefix ending mid-chunk; len - 3: a live state past the header.
+                for from in [0, 61, len.saturating_sub(3)] {
+                    if from >= len {
+                        continue;
+                    }
+                    let p = rendered(len);
+                    let mut f = Fake {
+                        c,
+                        pos: from,
+                        fed: Vec::new(),
+                        chunks: Vec::new(),
+                    };
+                    let mut st = FeedStats::default();
+                    let mut snaps = Vec::new();
+                    let r = feed_prompt(&mut f, &p, from, 512, &mut st, |m, k| {
+                        snaps.push((k, m.pos));
+                        Ok(None)
+                    });
+                    let at = format!("c {c} len {len} from {from}");
+                    r.unwrap_or_else(|e| panic!("{at}: {e}"));
+                    let got: Vec<(usize, u32)> = f.fed.iter().map(|&(i, t, _)| (i, t)).collect();
+                    let want: Vec<(usize, u32)> = (from..len).map(|i| (i, p[i])).collect();
+                    assert_eq!(got, want, "{at}");
+                    let k = snapshot_point(&p, from);
+                    assert_eq!(
+                        snaps,
+                        k.map(|k| (k, k)).into_iter().collect::<Vec<_>>(),
+                        "{at}"
+                    );
+                    assert!(f.chunks.iter().all(|&m| m >= 1 && m <= cap), "{at}");
+                    if c == 0 {
+                        assert!(f.fed.iter().all(|&(_, _, how)| how == 's'), "{at}");
+                        assert_eq!(st.stepped, len - from, "{at}");
+                    } else if let Some(k) = k {
+                        let stepped_row = f.fed.iter().any(|&(i, _, how)| i < k && how == 's');
+                        assert!(!stepped_row, "{at}");
+                    }
+                }
+            }
+        }
     }
 }

@@ -54,18 +54,30 @@ PASS receipts with distinct labels for the same server binary sha256.
 
 ## Host evidence (EXERCISED on host, not chip)
 
-`nice -n 19 taskset -c 0-9 cargo test -p aien-inference-abi --lib qwen38_omega`: 9 passed (chunk boundaries at
+`nice -n 19 taskset -c 0-9 cargo test -p aien-inference-abi --lib qwen38_omega`: 10 passed (chunk boundaries at
 1, 127, 128, 129, 2048, 8192 and 8210; env switch 0/default/cap/129/garbage; snapshot point and rows/last split at
-the same lengths and on turn 2; 35B rows never stepped). Negative control: `q36_chunk_lengths` mutated to drop a
-remainder of 1 -> `q36_chunks_at_the_boundaries` FAILED, then restored. The host tests cover only the pure split
-rules: a `prefill_state` or `feed_rows` that loses a token stays green on the host (review Rev862 M4/M5), which is
-why the window's prefill-only red arm (step 2) is required.
+the same lengths and on turn 2; 35B rows never stepped; the feed path below). Negative control: `q36_chunk_lengths`
+mutated to drop a remainder of 1 -> `q36_chunks_at_the_boundaries` FAILED, then restored.
 
-Script against a mock door (`/tmp/dra65mock/mock2.py`): red with one turn-2 id changed PASS rc 0; red on exact
-goldens FAIL rc 1; red on empty ids, short ids or HTTP 500 INCONCLUSIVE rc 2; green with 0 or 1 red receipt, or
-with receipts of another binary sha, refused rc 2; green with two receipts: exact PASS rc 0, one id changed FAIL
-rc 1, empty ids INCONCLUSIVE rc 2; time: exact RECORDED rc 0 (6/6 runs ok), HTTP 500 and missing usage
-INCONCLUSIVE rc 2.
+Feed path: `start_inner`'s feed is `session::feed_prompt` -> `feed_rows` / `feed_last` over the `PromptFeed`
+trait, and the 35B's state feed is `prefill::q36_state` + `q36_chunk_walk` (the loop `prefill_moe_head` runs on
+the chip) over `Q36Feed`; the model implements both. `every_prompt_token_is_fed_once_in_order` drives that same
+code with a fake that records (position, token id, step/row chunk/head chunk) and refuses a chunk at a position
+other than its own: lengths 1, 127, 128, 129, 259 (2*128+3), cached prefix 0, 61 (ends mid-chunk) and len-3
+(past the header), chunk 128 and 0. It asserts each token of `prompt[from..]` fed exactly once, in order, at its
+position; the snapshot taken at the header right after the rows; chunks within 1..=128; no row stepped with
+chunking, every token stepped with 0. Review Rev862's mutations, each applied alone and reverted: M4
+(`q36_state` drops the last row token) -> FAILED; M5 (`feed_rows` skips the first row token) -> FAILED; restored
+-> 10 passed. What stays chip-only: the wrappers (`prefill_state`'s env read, the embed + `g.prefill` per chunk),
+hence the window's prefill-only red arm (step 2).
+
+Script against a mock door (`/tmp/dra65mock/mock2.py`, run with `SPARK_WINDOW=w-test-1 AIEN_GB10_LOCK_HELD=1`):
+red with one turn-2 id changed PASS rc 0; red on exact goldens FAIL rc 1; red on empty ids, short ids or HTTP 500
+INCONCLUSIVE rc 2; green with 0 or 1 red receipt, or with receipts of another binary sha, refused rc 2; green with
+two receipts: exact PASS rc 0, one id changed FAIL rc 1, empty ids INCONCLUSIVE rc 2; time: exact RECORDED rc 0
+(6/6 runs ok), HTTP 500 and missing usage INCONCLUSIVE rc 2. Without `SPARK_WINDOW`, or with
+`AIEN_GB10_LOCK_HELD=0`: NOT_RUN rc 3. Every `golden.jsonl` / `time.jsonl` line and receipt carried
+`window: w-test-1` and the binary sha.
 
 Mutant 4 wiring (source, omega 474197e4f): `AIEN_Q36_TEST_MUTANT=4` -> `moe.rs` `graph_mutant()` ->
 `test_set_mutant` on the main graph and (`rows.rs` wire) every row and stroke graph; in C mutant 4 swaps K_CN for
@@ -74,14 +86,25 @@ So the env mutant reaches the chunked prefill. It also breaks decode, so it cann
 prefill-only mutant does: `AIEN_OMEGA_Q36_PF_MUTANT` is read by `omega_gpu_q36_graph.c` L925 when the prefill
 buffers are set up in the server process (header L146: 2 = every expert segment one row short); the decode graph
 never reads it, and with `AIEN_Q36_PREFILL_CHUNK=0` the single door runs no chip prefill at all
-(`prefill.rs` L298, L344). So PF_MUTANT=2 must be red with chunking and green with CHUNK=0.
+(`prefill.rs` L298, `q36_state`). So PF_MUTANT=2 must be red with chunking and green with CHUNK=0.
 
 ## Window (Main; chip gates NOT_RUN until then)
 
 Quiet exclusive window per the usual procedure (marker, stop 18091 and Flint, `spark-window open ... --gb10
-exclusive --quiet exclusive`). NEW = the build of this branch, `B=$(sha256sum <server binary> | cut -c1-64)`.
-Each line: start the server with the env shown, run, stop. Steps 1-2 must come first; step 3 onward need their
-receipts.
+exclusive --quiet exclusive --lease 20`). Every step runs as `spark-window run bash window-dra65.sh ...`; the
+script refuses with exit 3 (NOT_RUN) unless `SPARK_WINDOW` is set and `AIEN_GB10_LOCK_HELD=1`, never takes
+`/tmp/aien-gb10.lock` itself, and stamps the window id and binary sha into every receipt line. NEW = the build
+of this branch, `B=$(sha256sum <server binary> | cut -c1-64)`. Each line: start the server with the env shown
+(~33 s), run, stop. Steps 1-2 must come first; step 3 onward need their receipts (from any earlier lease).
+
+Estimated durations (MODELED, upper bounds at max_tokens; `window-dra65.sh plan` prints them), with decode
+0.0201 s/token, chunked prompts 250 tok/s (8210 tokens at 196.8), stepped prompts 0.0201 s/token, +33 s start:
+golden chunked `dec*(756 + 49 + 876) + 365/250. + 2486/250. + 8210/196.8` = 86.9 s -> 120 s with start;
+golden all-stepped (step 3) `dec*(756 + 365 + 2486 + 8210 + 49 + 876)` = 256.1 s -> 289 s; time chunked
+`3*(512/250. + 8210/196.8) + 6*256*dec` = 162.2 s -> 195 s; time all-stepped `dec*(3*(512 + 8210) + 6*256)` =
+556.8 s -> 590 s (756 = the set's prompt tokens, 876 = its decode tokens 798 + 3*24 + 6; 49 = turn 2 past the
+snapshot; 512 = planning size of long-512). 20-min leases: L1 = steps 1-5 (`4*119.91 + 289.11` = 769 s), L2 =
+6a + 6b (785 s), L3 = 6c + 6d (390 s).
 
 1. Single door, `AIEN_Q36_TEST_MUTANT=4`: `window-dra65.sh golden PORT OUT/w1 red $B mutant4` -> PASS (red).
 2. Single door, `AIEN_OMEGA_Q36_PF_MUTANT=2`: `window-dra65.sh golden PORT OUT/w2 red $B pf2` -> PASS (red: the

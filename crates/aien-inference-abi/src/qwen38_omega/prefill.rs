@@ -341,15 +341,7 @@ impl Qwen38Omega {
         if !self.is_moe() {
             return self.prefill_rows(tokens, chunk, false).map(|(_, st)| st);
         }
-        let c = q36_prefill_chunk()?;
-        let mut chunks = 0;
-        if c == 0 {
-            for &t in tokens {
-                self.step(t)?;
-            }
-        } else if !tokens.is_empty() {
-            chunks = self.prefill_moe_head(0, tokens, c, false)?.1;
-        }
+        let chunks = q36_state(self, tokens, q36_prefill_chunk()?)?;
         Ok(PrefillStats {
             tokens: tokens.len(),
             chunks,
@@ -644,6 +636,57 @@ pub fn q36_chunk_lengths(n: usize, chunk: usize) -> Vec<usize> {
     out
 }
 
+/// What the 35B's state feed drives: one decode step, or chip prefill chunks of `chunk` at head
+/// 0's next positions without the head (the model; a recording fake in the session tests).
+pub(crate) trait Q36Feed {
+    fn q36_step(&mut self, t: u32) -> Result<(), String>;
+    /// Returns the chunks run.
+    fn q36_chunks(&mut self, tokens: &[u32], chunk: usize) -> Result<usize, String>;
+}
+
+impl Q36Feed for Qwen38Omega {
+    fn q36_step(&mut self, t: u32) -> Result<(), String> {
+        self.step(t).map(|_| ())
+    }
+
+    fn q36_chunks(&mut self, tokens: &[u32], chunk: usize) -> Result<usize, String> {
+        Ok(self.prefill_moe_head(0, tokens, chunk, false)?.1)
+    }
+}
+
+/// [`Qwen38Omega::prefill_state`] on the 35B: `c == 0` steps every token, else chunks of `c`.
+/// Returns the chunks run (0 when stepped or nothing to feed).
+pub(crate) fn q36_state<F: Q36Feed>(f: &mut F, tokens: &[u32], c: usize) -> Result<usize, String> {
+    if c == 0 {
+        for &t in tokens {
+            f.q36_step(t)?;
+        }
+        return Ok(0);
+    }
+    if tokens.is_empty() {
+        return Ok(0);
+    }
+    f.q36_chunks(tokens, c)
+}
+
+/// Walks `tokens` in the chunks of [`q36_chunk_lengths`] from position `pos0`: `each(chunk, pos,
+/// last)`. Returns the chunks walked and the position after the last token.
+pub(crate) fn q36_chunk_walk(
+    tokens: &[u32],
+    chunk: usize,
+    pos0: usize,
+    mut each: impl FnMut(&[u32], usize, bool) -> Result<(), String>,
+) -> Result<(usize, usize), String> {
+    let lengths = q36_chunk_lengths(tokens.len(), chunk);
+    let (mut at, mut pos) = (0, pos0);
+    for (i, &m) in lengths.iter().enumerate() {
+        each(&tokens[at..at + m], pos, i + 1 == lengths.len())?;
+        at += m;
+        pos += m;
+    }
+    Ok((lengths.len(), pos))
+}
+
 impl Qwen38Omega {
     /// L369: fp8 GEMM weight bytes the 35B prefill has streamed so far on this graph (0 for other
     /// models); see `Graph::prefill_streamed`.
@@ -697,29 +740,22 @@ impl Qwen38Omega {
             g.prefill_alloc(chunk).map_err(gpu("q36 prefill_alloc"))?;
         }
         let mut next = None;
-        let mut pos = pos0;
-        let lengths = q36_chunk_lengths(tokens.len(), chunk);
-        let n_chunks = lengths.len();
-        let mut at = 0;
-        for (i, &m) in lengths.iter().enumerate() {
-            let c = &tokens[at..at + m];
-            at += m;
-            let mut x = vec![0f32; m * h];
+        let (n_chunks, pos) = q36_chunk_walk(tokens, chunk, pos0, |c, pos, last| {
+            let mut x = vec![0f32; c.len() * h];
             for (row, &t) in x.chunks_mut(h).zip(c) {
                 let t = t as usize;
                 for (d, &b) in row.iter_mut().zip(&embed[t * h..(t + 1) * h]) {
                     *d = bf16_to_f32(b);
                 }
             }
-            let last = i + 1 == n_chunks;
             let (tok, _) = g
                 .prefill(head, &x, pos, last && want_token)
                 .map_err(gpu("q36 prefill"))?;
             if last {
                 next = tok;
             }
-            pos += m;
-        }
+            Ok(())
+        })?;
         *self.head_pos_mut(head)? = pos;
         Ok((next, n_chunks))
     }
