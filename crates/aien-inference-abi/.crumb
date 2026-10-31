@@ -1,0 +1,9 @@
+{
+  "invariants": [
+    "Chat-template control strings inside tool content are refused. Check: cargo test -p aien-inference-abi --test tool_boundary -- --exact every_template_control_string_is_refused",
+    "A shard index naming a parent, absolute or symlinked path outside the checkpoint is rejected. Check: cargo test -p aien-inference-abi --lib -- --exact checkpoint::tests::shard_index_rejects_parent_absolute_and_symlink_escape"
+  ],
+  "name": "aien-inference-abi",
+  "purpose": "Sovereign native ABI for LLM inference backends",
+  "schema_version": "1.0.0"
+}

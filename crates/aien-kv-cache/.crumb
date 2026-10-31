@@ -1,0 +1,9 @@
+{
+  "invariants": [
+    "A reused KV block never exposes the previous sequence's KV. Check: cargo test -p aien-kv-cache --test kv_lifecycle_qualification -- --exact freed_block_reuse_never_exposes_previous_sequence_kv",
+    "Pool exhaustion refuses the allocation without changing cache state. Check: cargo test -p aien-kv-cache --test kv_lifecycle_qualification -- --exact exhaustion_refuses_without_changing_state"
+  ],
+  "name": "aien-kv-cache",
+  "purpose": "Native Paged KV-Cache Manager with physical unified-memory tensors and prefix caching",
+  "schema_version": "1.0.0"
+}

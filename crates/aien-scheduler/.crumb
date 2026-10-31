@@ -1,0 +1,8 @@
+{
+  "invariants": [
+    "An exhausted KV pool with nothing running fails loudly instead of waiting forever. Check: cargo test -p aien-scheduler --test kv_incremental_admission_test -- --exact exhausted_pool_with_nothing_running_fails_loud"
+  ],
+  "name": "aien-scheduler",
+  "purpose": "Native continuous batching LLM scheduler with chunked prefill",
+  "schema_version": "1.0.0"
+}

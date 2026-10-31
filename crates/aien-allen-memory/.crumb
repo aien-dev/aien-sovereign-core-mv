@@ -1,4 +1,8 @@
 {
+  "invariants": [
+    "Memory plaintext never reaches disk. Check: cargo test -p aien-allen-memory --test memory_test -- --exact plaintext_is_never_on_disk",
+    "Tampered ciphertext or bound data is refused on recall. Check: cargo test -p aien-allen-memory --test memory_test -- --exact tampered_ciphertext_or_bound_data_is_refused"
+  ],
   "name": "aien-allen-memory",
   "purpose": "ALLEN scoped memory store: scopes enforced at recall, inspect/correct/export, key-destroying forget, host goal records (arch#159).",
   "schema_version": "1.0.0"

@@ -1,4 +1,8 @@
 {
+  "invariants": [
+    "A damaged profile file is refused and never silently replaced. Check: cargo test -p aien-allen-profile --test profile_test -- --exact damaged_files_are_refused_and_never_replaced",
+    "A crash at any write step leaves an intact profile head. Check: cargo test -p aien-allen-profile --test profile_test -- --exact crash_at_every_write_step_leaves_an_intact_head"
+  ],
   "name": "aien-allen-profile",
   "purpose": "ALLEN persona profile v1: versioned, user-editable profile bound to the engaged ALLEN identity; the only writer of <home>.allen-profile (arch#159).",
   "schema_version": "1.0.0"
