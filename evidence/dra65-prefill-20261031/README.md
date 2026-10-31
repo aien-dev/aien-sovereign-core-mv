@@ -17,8 +17,11 @@ Refs aien-dev/aien-sovereign-core-mv#856, Linear DRA-65.
 ## Change (IMPLEMENTED)
 
 - `prefill.rs`: `Qwen38Omega::prefill_state(tokens, chunk)` feeds tokens for their state only; on the 35B as chip
-  prefill chunks of `AIEN_Q36_PREFILL_CHUNK` (default 128, 0 = the old token-by-token path, same binary) at any
-  length from 1. `prefill_rows` on the 35B now chunks all but the last token and steps the last one for its
+  prefill chunks of `AIEN_Q36_PREFILL_CHUNK` (default 128) at any length from 1. `AIEN_Q36_PREFILL_CHUNK=0` makes
+  the new binary feed EVERY prompt token through the decode graph, the answer-header piece included; the base
+  binary's default already chunked that last piece when it was >= 3 tokens, so the CHUNK=0 arm is slower than the
+  old production single door by about one header (`N[7*0.0201]` = 0.14 s), not equal to it. `prefill_rows` on
+  the 35B now chunks all but the last token and steps the last one for its
   residual (the chip prefill keeps its rows in `pf.x`, not the decode graph's x, so `residual()` is only valid
   after a step); `all=true` still steps every token (its rows are not exported by the chip prefill).
   `q36_chunk_lengths` is the one chunk plan `prefill_moe_head` iterates.
@@ -33,37 +36,67 @@ Refs aien-dev/aien-sovereign-core-mv#856, Linear DRA-65.
 `i==0 ? 24 : 8 + (i*7) % 41`), goldens = reference build **bin-5b726818** ("plain correct path: prompt fed token
 by token, no speed levers"), each request alone, recorded 2026-10-21 (before this change). Prompt 0's ids equal
 the host-oracle golden `evidence/q36-host-20261020/gen-chat-max-24.json`. `long-goldens.json` adds the 365 /
-2486 / 8210-token prompts with goldens from bin-16b0e6f8 (batch door, prompts token by token). 35 cases in all.
-Judge: exact id identity (the door returns no logit margins, so the 0.1-logit band cannot be judged through it;
-any flip is FAIL). `SHA256SUMS` pins every input; the script refuses to run if one changed.
+2486 / 8210-token prompts and **turn 2** of long-2048 (2528 tokens, three messages, `turn2.messages.json`) with
+goldens from bin-16b0e6f8 (prompts token by token). The script sends turn 2 right after long-2048, so the door
+restores the snapshot it took at long-2048's answer header after a chunked prefill (`plan_reuse` ->
+`Reuse::Snapshot`). 36 cases in all.
+
+Provenance: both files name `source_dir` (the merge-train store); every case carries `ref_sha256` of its source
+golden (`alone/<i>.json`, `l369-long/<name>.json`), and `long-goldens.json` carries the store's `done` receipt
+text and sha256 (it names bin-16b0e6f8). `SHA256SUMS` pins every committed input; the script refuses to run if
+one changed.
+
+Judge: exact id identity (the door returns no logit margins, so the 0.1-logit band cannot be judged through it).
+Per case SAME / DIFF (a flip inside the common length, or more ids than the golden) / SHORT (a strict prefix: no
+flip shown) / NO_IDS (HTTP error, missing or empty ids). Red PASS needs a DIFF and no SHORT/NO_IDS (else
+INCONCLUSIVE); green PASS needs 36 SAME (NO_IDS -> INCONCLUSIVE, else FAIL). Green refuses to run without two red
+PASS receipts with distinct labels for the same server binary sha256.
 
 ## Host evidence (EXERCISED on host, not chip)
 
 `nice -n 19 taskset -c 0-9 cargo test -p aien-inference-abi --lib qwen38_omega`: 9 passed (chunk boundaries at
 1, 127, 128, 129, 2048, 8192 and 8210; env switch 0/default/cap/129/garbage; snapshot point and rows/last split at
 the same lengths and on turn 2; 35B rows never stepped). Negative control: `q36_chunk_lengths` mutated to drop a
-remainder of 1 -> `q36_chunks_at_the_boundaries` FAILED, then restored. Judge exercised against a mock door
-(exact goldens / one id changed): green PASS + red FAIL, and green FAIL (exit 1) + red PASS.
+remainder of 1 -> `q36_chunks_at_the_boundaries` FAILED, then restored. The host tests cover only the pure split
+rules: a `prefill_state` or `feed_rows` that loses a token stays green on the host (review Rev862 M4/M5), which is
+why the window's prefill-only red arm (step 2) is required.
+
+Script against a mock door (`/tmp/dra65mock/mock2.py`): red with one turn-2 id changed PASS rc 0; red on exact
+goldens FAIL rc 1; red on empty ids, short ids or HTTP 500 INCONCLUSIVE rc 2; green with 0 or 1 red receipt, or
+with receipts of another binary sha, refused rc 2; green with two receipts: exact PASS rc 0, one id changed FAIL
+rc 1, empty ids INCONCLUSIVE rc 2; time: exact RECORDED rc 0 (6/6 runs ok), HTTP 500 and missing usage
+INCONCLUSIVE rc 2.
 
 Mutant 4 wiring (source, omega 474197e4f): `AIEN_Q36_TEST_MUTANT=4` -> `moe.rs` `graph_mutant()` ->
 `test_set_mutant` on the main graph and (`rows.rs` wire) every row and stroke graph; in C mutant 4 swaps K_CN for
 K_CN_M3 in the decode path and in `omega_gpu_q36_graph_prefill` (the chunk path), K_CN_R for K_CN_R_M3 in rows.
-So the env mutant reaches the chunked prefill. The per-request `aien_test` mutant does not (the batch door steps
-such rows token by token), so the window uses the env mutant.
+So the env mutant reaches the chunked prefill. It also breaks decode, so it cannot show the chunk path runs. The
+prefill-only mutant does: `AIEN_OMEGA_Q36_PF_MUTANT` is read by `omega_gpu_q36_graph.c` L925 when the prefill
+buffers are set up in the server process (header L146: 2 = every expert segment one row short); the decode graph
+never reads it, and with `AIEN_Q36_PREFILL_CHUNK=0` the single door runs no chip prefill at all
+(`prefill.rs` L298, L344). So PF_MUTANT=2 must be red with chunking and green with CHUNK=0.
 
 ## Window (Main; chip gates NOT_RUN until then)
 
 Quiet exclusive window per the usual procedure (marker, stop 18091 and Flint, `spark-window open ... --gb10
-exclusive --quiet exclusive`). NEW = the build of this branch. Each line: start the server, run, stop.
+exclusive --quiet exclusive`). NEW = the build of this branch, `B=$(sha256sum <server binary> | cut -c1-64)`.
+Each line: start the server with the env shown, run, stop. Steps 1-2 must come first; step 3 onward need their
+receipts.
 
-1. Single door, NEW, `AIEN_Q36_TEST_MUTANT=4`: `window-dra65.sh golden PORT OUT/w1-mutant red` -> must PASS (red).
-2. Single door, NEW: `window-dra65.sh golden PORT OUT/w2-single green` -> PASS = 35/35 identical.
-3. Batch door (`--batch-slots 8`), NEW: `window-dra65.sh golden PORT OUT/w3-batch green`.
-4. `window-dra65.sh time PORT OUT/w4-<arm>` on: single NEW; single NEW with `AIEN_Q36_PREFILL_CHUNK=0` (before
-   arm); batch NEW; batch NEW with `AIEN_Q36_PREFILL_MIN=1` (chunks the answer header too).
-   Receipts: `time.jsonl` (t0, first content delta, end, usage per run). TTFT = t_first - t0; e2e tok/s =
-   completion_tokens / (t_end - t_first). Medians of the 3 runs through Wolfram (`Median[{...}]`).
-   Target 1 compares e2e against chip-only decode from DRA-66's `chip_ns` in the same runs.
+1. Single door, `AIEN_Q36_TEST_MUTANT=4`: `window-dra65.sh golden PORT OUT/w1 red $B mutant4` -> PASS (red).
+2. Single door, `AIEN_OMEGA_Q36_PF_MUTANT=2`: `window-dra65.sh golden PORT OUT/w2 red $B pf2` -> PASS (red: the
+   chunk path runs).
+3. Single door, `AIEN_OMEGA_Q36_PF_MUTANT=2 AIEN_Q36_PREFILL_CHUNK=0`: `window-dra65.sh golden PORT OUT/w3 green
+   $B pf2-chunk0 OUT/w1/golden-receipt.json OUT/w2/golden-receipt.json` -> PASS (the mutant lives on the chunk
+   path only).
+4. Single door, plain: `... golden PORT OUT/w4 green $B single OUT/w1/... OUT/w2/...` -> PASS = 36/36.
+5. Batch door (`--batch-slots 8`), plain: `... golden PORT OUT/w5 green $B batch OUT/w1/... OUT/w2/...`.
+6. `window-dra65.sh time PORT OUT/w6-<arm> $B <arm>` on: single; single with `AIEN_Q36_PREFILL_CHUNK=0` (the
+   all-token-steps arm above); batch; batch with `AIEN_Q36_PREFILL_MIN=1` (chunks the answer header too). Exit 0
+   only if all 6 runs have HTTP 200, a first content delta and usage. Receipts: `time.jsonl`. TTFT = t_first - t0;
+   e2e tok/s = completion_tokens / (t_end - t_first). Medians of the 3 runs through Wolfram (`Median[{...}]`).
+   Record `usage.prompt_tokens` of long-512 (the host has no tokenizer). Target 1 compares e2e against chip-only
+   decode from DRA-66's `chip_ns` in the same runs.
 
 ## Predictions (MODELED, Wolfram)
 

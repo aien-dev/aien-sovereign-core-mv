@@ -1,5 +1,9 @@
 {
-  "about": "long-prompt goldens from reference build bin-16b0e6f8 (batch door, prompts token by token), each alone, 2026-10-21T22:11:19Z",
+  "about": "long-prompt and turn-2 goldens from reference build bin-16b0e6f8 (prompts token by token), each alone, 2026-10-21T22:11:19Z",
+  "source_dir": "~/.local/state/aien-q36/merge-train/refs/qwen3.6-35b-a3b-fp8-95a723d0/5b726818/",
+  "done_receipt": "l369-long/done",
+  "done_sha256": "f9435cbb8e39b9467a59d95f7f2e8282a3b92ed31ede7642c1f21673012c322e",
+  "done_text": "2026-10-21T22:11:19Z port 18091 model qwen3.6-35b-a3b-fp8 {\"build\":null} reference build bin-16b0e6f8 (live 18091, prompts token by token), each request alone; L387",
   "prompts": [
     {
       "name": "long-256",
@@ -32,7 +36,9 @@
         430,
         314
       ],
-      "max_tokens": 24
+      "max_tokens": 24,
+      "ref": "l369-long/long-256.json",
+      "ref_sha256": "0998d4c6d9734b24a282aac8bb0ca61c3ea832f0551033bb4dda7f1470ea523b"
     },
     {
       "name": "long-2048",
@@ -65,7 +71,9 @@
         25471,
         1204
       ],
-      "max_tokens": 24
+      "max_tokens": 24,
+      "ref": "l369-long/long-2048.json",
+      "ref_sha256": "3dff923dc6932a1828d864b565a6c89e12805839ce80758370bd47081af3c3c9"
     },
     {
       "name": "long-8192",
@@ -98,7 +106,28 @@
         321,
         25147
       ],
-      "max_tokens": 24
+      "max_tokens": 24,
+      "ref": "l369-long/long-8192.json",
+      "ref_sha256": "cdcef9435130dbff56628c3a6b01cf1824fd2f1feeeecd80de378cb054147cca"
+    },
+    {
+      "name": "turn2",
+      "messages": "evidence/dra65-prefill-20261031/turn2.messages.json",
+      "file_sha256": "7a3661c1159cae61e2747eaf9047a6083367be1f643e386d9b80c27131ce7b3e",
+      "prompt_tokens": 2528,
+      "golden_ids": [
+        79852,
+        6297,
+        11540,
+        9284,
+        2790,
+        13
+      ],
+      "max_tokens": 16,
+      "ref": "l369-long/turn2.json",
+      "ref_sha256": "19fb7084e0df36faee9c574627d1ff9a10b059afc1884cd62963f14690e59cf4",
+      "after": "long-2048",
+      "about": "turn 2 of long-2048 (its golden reply as the assistant turn): run right after long-2048 so the door restores the snapshot taken at long-2048 answer header after a chunked prefill"
     }
   ]
 }

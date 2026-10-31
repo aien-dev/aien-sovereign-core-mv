@@ -1130,5 +1130,7 @@
       "finish": "length",
       "ref_sha256": "705bf4bdc3d0d99530c5a567ba128998c3b437a09dabc12bd4ba1fe396de5cc8"
     }
-  ]
+  ],
+  "source_dir": "~/.local/state/aien-q36/merge-train/refs/qwen3.6-35b-a3b-fp8-95a723d0/5b726818/",
+  "ref_note": "prompts[i].ref_sha256 = sha256 of source_dir/alone/<i>.json"
 }

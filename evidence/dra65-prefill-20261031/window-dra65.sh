@@ -2,66 +2,114 @@
 # SPDX-License-Identifier: Apache-2.0
 # DRA-65 chip window (Main runs it inside a quiet exclusive spark-window; see README.md "Window").
 # The script never starts or stops a server: Main starts each server as README.md lists, then runs
-#   window-dra65.sh golden PORT OUT green|red   32-prompt set + long prompts vs the pinned goldens
-#   window-dra65.sh time   PORT OUT              TTFT and end-to-end tok/s, 512 and ~8k prompts, 3 runs each
-# Exit: golden 0 = verdict as expected (green: 35/35 identical; red: at least one differs), 1 = not as
-# expected, 2 = no verdict (server unreachable, unparsable replies). time: 0 = receipts written, 2 = none.
+#   window-dra65.sh golden PORT OUT red   BIN_SHA256 LABEL
+#   window-dra65.sh golden PORT OUT green BIN_SHA256 LABEL RED_RECEIPT RED_RECEIPT [...]
+#       36 cases (32-prompt set, 3 long prompts, turn 2 restoring the long-2048 snapshot) vs the pinned goldens.
+#       green refuses to run unless it is handed at least two red receipts (verdict PASS, distinct labels)
+#       of the same server binary sha256: red before green.
+#   window-dra65.sh time PORT OUT BIN_SHA256 LABEL
+#       TTFT and end-to-end tok/s, ~512 and 8210-token prompts, 3 runs each.
+# Per case: SAME (ids equal), DIFF (a flip inside the common length, or more ids than the golden),
+# SHORT (a strict prefix of the golden: no flip shown), NO_IDS (HTTP error, missing or empty ids).
+# golden red:   PASS = at least one DIFF and no NO_IDS/SHORT; NO_IDS/SHORT -> INCONCLUSIVE; else FAIL.
+# golden green: PASS = all SAME; any NO_IDS -> INCONCLUSIVE; else FAIL.
+# Exit 0 = PASS, 1 = FAIL, 2 = INCONCLUSIVE or refused. time: 0 only if every run has HTTP 200, a
+# first content delta and usage with completion_tokens > 0; else 2 (INCONCLUSIVE).
 set -uo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd); REPO=$(cd "$HERE/../.." && pwd)
-MODE=${1:?golden|time}; PORT=${2:?port}; OUT=${3:?out dir}; mkdir -p "$OUT"
+die() { echo "window-dra65: $*" >&2; exit 2; }
+MODE=${1:-}; PORT=${2:-}; OUT=${3:-}
+[ -n "$MODE" ] && [ -n "$PORT" ] && [ -n "$OUT" ] || die "usage: see the header"
 URL=http://127.0.0.1:$PORT
-MODEL=$(curl -s -m 10 "$URL/v1/models" | jq -r '.data[0].id // empty')
-[ -n "$MODEL" ] || { echo "window-dra65: no model on $URL" >&2; exit 2; }
+(cd "$REPO" && sha256sum -c --quiet "$HERE/SHA256SUMS") || die "pinned inputs changed"
+mkdir -p "$OUT"
+MODEL=$(curl -s -m 10 "$URL/v1/models" | jq -r '.data[0].id // empty' 2>/dev/null)
+[ -n "$MODEL" ] || die "no model on $URL"
 DEF=$(jq -c .defaults "$HERE/set32.json")
-body() { # <user text> <max_tokens> [stream]
-  jq -cn --arg m "$MODEL" --arg u "$1" --argjson n "$2" --argjson d "$DEF" --argjson s "${3:-false}" \
-    '$d + {model:$m, messages:[{role:"user",content:$u}], max_tokens:$n} + (if $s then {stream:true, stream_options:{include_usage:true}} else {} end)'
+SET=$HERE/set32.json; LONG=$HERE/long-goldens.json
+req() { # <messages json> <max_tokens> [stream]
+  jq -cn --arg m "$MODEL" --argjson msg "$1" --argjson n "$2" --argjson d "$DEF" --argjson s "${3:-false}" \
+    '$d + {model:$m, messages:$msg, max_tokens:$n} + (if $s then {stream:true, stream_options:{include_usage:true}} else {} end)'
 }
-ask() { curl -s -m 1800 "$URL/v1/chat/completions" -H 'Content-Type: application/json' -d "$1"; }
-# pins: the set, the prompt files and the long goldens must hash as committed
-(cd "$REPO" && sha256sum -c --quiet "$HERE/SHA256SUMS") || { echo "window-dra65: pinned inputs changed" >&2; exit 2; }
+user() { jq -cn --arg u "$1" '[{role:"user",content:$u}]'; }
+# ask <messages> <max_tokens> <raw file>: prints the HTTP code
+ask() { curl -s -m 1800 -o "$3" -w '%{http_code}' "$URL/v1/chat/completions" -H 'Content-Type: application/json' -d "$(req "$1" "$2")"; }
+judge() { # <http code> <raw file> <golden ids json>: prints SAME|DIFF|SHORT|NO_IDS
+  local got; [ "$1" = 200 ] || { echo NO_IDS; return; }
+  got=$(jq -c '.usage.aien_token_ids | select(type == "array" and length > 0)' "$2" 2>/dev/null)
+  [ -n "$got" ] || { echo NO_IDS; return; }
+  jq -rn --argjson g "$got" --argjson w "$3" '
+    ([$g, $w] | map(length) | min) as $m
+    | if $g == $w then "SAME"
+      elif ([range(0; $m) | select($g[.] != $w[.])] | length) > 0 then "DIFF"
+      elif ($g | length) > ($w | length) then "DIFF"
+      else "SHORT" end'
+}
 
 case $MODE in
 golden)
-  EXPECT=${4:?green|red}; same=0; diff=0; bad=0
+  EXPECT=${4:-}; BIN=${5:-}; LABEL=${6:-}
+  case $EXPECT in red|green) ;; *) die "golden needs red|green";; esac
+  [[ $BIN =~ ^[0-9a-f]{64}$ ]] || die "BIN_SHA256 must be the server binary's sha256"
+  [ -n "$LABEL" ] || die "LABEL missing"
+  if [ "$EXPECT" = green ]; then
+    shift 6; reds=$(for r in "$@"; do jq -r --arg b "$BIN" \
+      'select(.case == "golden" and .expect == "red" and .verdict == "PASS" and .bin_sha256 == $b) | .label' "$r" 2>/dev/null; done | sort -u | wc -l)
+    [ "$reds" -ge 2 ] || die "green refused: needs >= 2 red PASS receipts (distinct labels) for binary $BIN, got $reds"
+  fi
+  : > "$OUT/golden.jsonl"; declare -A n=([SAME]=0 [DIFF]=0 [SHORT]=0 [NO_IDS]=0)
+  rec() { jq -cn --arg id "$1" --arg v "$2" --arg h "$3" --argjson w "$4" --slurpfile r <(jq -c . "$5" 2>/dev/null || echo null) \
+    '{id:$id, verdict:$v, http:$h, got:($r[0].usage.aien_token_ids // null), golden:$w}' >> "$OUT/golden.jsonl"; }
   for i in $(seq 0 31); do
-    u=$(jq -r ".prompts[$i].user" "$HERE/set32.json"); n=$(jq -r ".prompts[$i].max_tokens" "$HERE/set32.json")
-    ask "$(body "$u" "$n")" > "$OUT/p$i.raw"
-    got=$(jq -c '.usage.aien_token_ids // empty' "$OUT/p$i.raw" 2>/dev/null); want=$(jq -c ".prompts[$i].golden_ids" "$HERE/set32.json")
-    if [ -z "$got" ]; then bad=$((bad+1)); v=NO_IDS; elif [ "$got" = "$want" ]; then same=$((same+1)); v=SAME; else diff=$((diff+1)); v=DIFF; fi
-    jq -cn --arg id "p$i" --arg v $v --argjson g "${got:-null}" --argjson w "$want" '{id:$id, verdict:$v, got:$g, golden:$w}' >> "$OUT/golden.jsonl"
+    u=$(jq -r ".prompts[$i].user" "$SET"); m=$(jq -r ".prompts[$i].max_tokens" "$SET"); w=$(jq -c ".prompts[$i].golden_ids" "$SET")
+    h=$(ask "$(user "$u")" "$m" "$OUT/p$i.raw"); v=$(judge "$h" "$OUT/p$i.raw" "$w"); n[$v]=$((n[$v]+1)); rec "p$i" "$v" "$h" "$w" "$OUT/p$i.raw"
   done
-  for k in 0 1 2; do
-    f=$(jq -r ".prompts[$k].file" "$HERE/long-goldens.json"); name=$(jq -r ".prompts[$k].name" "$HERE/long-goldens.json")
-    ask "$(body "$(cat "$REPO/$f")" 24)" > "$OUT/$name.raw"
-    got=$(jq -c '.usage.aien_token_ids // empty' "$OUT/$name.raw" 2>/dev/null); want=$(jq -c ".prompts[$k].golden_ids" "$HERE/long-goldens.json")
-    if [ -z "$got" ]; then bad=$((bad+1)); v=NO_IDS; elif [ "$got" = "$want" ]; then same=$((same+1)); v=SAME; else diff=$((diff+1)); v=DIFF; fi
-    jq -cn --arg id "$name" --arg v $v --argjson g "${got:-null}" --argjson w "$want" '{id:$id, verdict:$v, got:$g, golden:$w}' >> "$OUT/golden.jsonl"
+  # turn2 right after long-2048: the door restores the snapshot it took at long-2048's answer header.
+  for name in long-256 long-8192 long-2048 turn2; do
+    c=$(jq -c --arg n "$name" '.prompts[] | select(.name == $n)' "$LONG"); w=$(jq -c .golden_ids <<<"$c"); m=$(jq -r .max_tokens <<<"$c")
+    if [ "$name" = turn2 ]; then msg=$(jq -c . "$REPO/$(jq -r .messages <<<"$c")"); else msg=$(user "$(cat "$REPO/$(jq -r .file <<<"$c")")"); fi
+    h=$(ask "$msg" "$m" "$OUT/$name.raw"); v=$(judge "$h" "$OUT/$name.raw" "$w"); n[$v]=$((n[$v]+1)); rec "$name" "$v" "$h" "$w" "$OUT/$name.raw"
   done
-  if [ $bad -gt 0 ]; then verdict=INCONCLUSIVE; rc=2
-  elif [ "$EXPECT" = green ] && [ $same -eq 35 ]; then verdict=PASS; rc=0
-  elif [ "$EXPECT" = red ] && [ $diff -gt 0 ]; then verdict=PASS; rc=0
-  else verdict=FAIL; rc=1; fi
-  jq -cn --arg e "$EXPECT" --arg v $verdict --argjson s $same --argjson d $diff --argjson b $bad --arg port "$PORT" --arg at "$(date -u +%FT%TZ)" \
-    '{case:"golden", expect:$e, verdict:$v, identical:$s, differ:$d, no_ids:$b, of:35, port:$port, at:$at}' | tee "$OUT/golden-receipt.json"
+  if [ "$EXPECT" = red ]; then
+    if [ $((n[NO_IDS] + n[SHORT])) -gt 0 ]; then verdict=INCONCLUSIVE; rc=2
+    elif [ "${n[DIFF]}" -gt 0 ]; then verdict=PASS; rc=0; else verdict=FAIL; rc=1; fi
+  else
+    if [ "${n[NO_IDS]}" -gt 0 ]; then verdict=INCONCLUSIVE; rc=2
+    elif [ "${n[SAME]}" -eq 36 ]; then verdict=PASS; rc=0; else verdict=FAIL; rc=1; fi
+  fi
+  jq -cn --arg e "$EXPECT" --arg v $verdict --arg b "$BIN" --arg l "$LABEL" --argjson s "${n[SAME]}" --argjson d "${n[DIFF]}" \
+    --argjson sh "${n[SHORT]}" --argjson x "${n[NO_IDS]}" --arg port "$PORT" --arg at "$(date -u +%FT%TZ)" \
+    '{case:"golden", expect:$e, verdict:$v, bin_sha256:$b, label:$l, same:$s, diff:$d, short:$sh, no_ids:$x, of:36, port:$port, at:$at}' \
+    | tee "$OUT/golden-receipt.json"
   exit $rc ;;
 time)
-  # One streamed request per run: TTFT = first content delta (client clock), e2e tok/s = completion
-  # tokens / (last byte - first content delta). Medians go through Wolfram afterwards (README).
+  BIN=${4:-}; LABEL=${5:-}
+  [[ $BIN =~ ^[0-9a-f]{64}$ ]] || die "BIN_SHA256 must be the server binary's sha256"
+  [ -n "$LABEL" ] || die "LABEL missing"
+  # TTFT = first content delta - t0 (client clock); e2e tok/s = completion_tokens / (t_end - t_first).
+  # Medians of the 3 runs go through Wolfram afterwards (README).
+  : > "$OUT/time.jsonl"; ok=1
   for name in long-512 long-8192; do
     f=$HERE/$name.txt; [ -f "$f" ] || f=$REPO/evidence/merge-train/l369/$name.txt
     for run in 1 2 3; do
-      o=$OUT/$name-r$run; t0=$(date +%s.%N); first=""
+      o=$OUT/$name-r$run; : > "$o.sse"; t0=$(date +%s.%N); first=""
       while IFS= read -r line; do
-        case $line in data:*'"content":"'?*) [ -z "$first" ] && first=$(date +%s.%N);; esac
+        [ -z "$first" ] && [[ $line =~ ^data:.*\"content\":\ *\"[^\"] ]] && first=$(date +%s.%N)
         printf '%s\n' "$line" >> "$o.sse"
-      done < <(curl -s -N -m 1800 "$URL/v1/chat/completions" -H 'Content-Type: application/json' -d "$(body "$(cat "$f")" 256 true)")
+      done < <(curl -s -N -m 1800 -w '\nHTTP %{http_code}\n' "$URL/v1/chat/completions" -H 'Content-Type: application/json' \
+                 -d "$(req "$(user "$(cat "$f")")" 256 true)")
       t1=$(date +%s.%N)
-      usage=$(grep '"usage"' "$o.sse" | grep -v '"usage":null' | tail -n 1 | sed 's/^data: //' | jq -c '.usage // null' 2>/dev/null)
-      jq -cn --arg n "$name" --argjson r $run --arg t0 "$t0" --arg tf "${first:-}" --arg t1 "$t1" --argjson u "${usage:-null}" \
-        '{prompt:$n, run:$r, t0:$t0, t_first:$tf, t_end:$t1, usage:$u}' | tee -a "$OUT/time.jsonl"
+      code=$(grep -o '^HTTP [0-9]*' "$o.sse" | tail -n 1 | cut -c6-)
+      usage=$(grep '^data: {' "$o.sse" | sed 's/^data: //' | jq -c 'select(.usage != null) | .usage' 2>/dev/null | tail -n 1)
+      good=$(jq -n --arg c "${code:-}" --arg f "$first" --argjson u "${usage:-null}" \
+        '$c == "200" and $f != "" and ($u | type) == "object" and (($u.completion_tokens // 0) > 0)')
+      [ "$good" = true ] || ok=0
+      jq -cn --arg n "$name" --argjson r $run --arg b "$BIN" --arg l "$LABEL" --arg h "${code:-}" --arg t0 "$t0" --arg tf "$first" \
+        --arg t1 "$t1" --argjson u "${usage:-null}" --argjson g "$good" \
+        '{prompt:$n, run:$r, bin_sha256:$b, label:$l, http:$h, ok:$g, t0:$t0, t_first:$tf, t_end:$t1, usage:$u}' | tee -a "$OUT/time.jsonl"
     done
   done
-  exit 0 ;;
-*) echo "window-dra65: mode golden|time" >&2; exit 2 ;;
+  if [ $ok = 1 ]; then echo '{"case":"time","verdict":"RECORDED"}'; exit 0; fi
+  echo '{"case":"time","verdict":"INCONCLUSIVE","why":"a run had no HTTP 200, no first content delta or no usage"}'; exit 2 ;;
+*) die "mode golden|time" ;;
 esac
