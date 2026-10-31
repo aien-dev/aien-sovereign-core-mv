@@ -83,7 +83,7 @@
         },
         {
           "digest": "a2ac5edc339c6011aafd47acc096584165fa05af1c164d464c77d928add1ecc4",
-          "last_commit": "53beb962",
+          "last_commit": "966d09f2",
           "name": "crates/aien-cli",
           "purpose": ""
         },
@@ -107,7 +107,7 @@
         },
         {
           "digest": "f84780fa891f458ab56b40432a7ca3666e01783639585cdd282b73d508c1a038",
-          "last_commit": "a07df7f2",
+          "last_commit": "0a4e42b1",
           "name": "scripts",
           "purpose": ""
         },
@@ -118,21 +118,21 @@
           "purpose": ""
         },
         {
-          "digest": "0aacc9353a76a564e51069e99c6f11fb84b293ecf9686b68fbd72755b7da564e",
-          "last_commit": "00a55932",
+          "digest": "f3c208d8b9bdd9ad5382af5f1fe9bb2ed9c971a831a017d636c13aaf0e7e1b9e",
+          "last_commit": "6f25b2bb",
           "name": "tools/aien-local-ci",
           "purpose": "Local CI sandbox exec contract (C8), aien-run user/caches install, Forgejo trigger hook, health "
         }
       ],
-      "children_root": "sha256:05d34c0deec7c4a6cd3aa12640dca0c20bd8b2d4a4df809b234090822f422b4f",
-      "compiled_at": "2026-10-30T21:49:56Z",
+      "children_root": "sha256:11667569f33ec3ce2a92661f04fa07e1e1757b2b1d83787eb82fe3aa44a73a00",
+      "compiled_at": "2026-10-30T23:24:42Z",
       "compiler": "crumb-compile/1",
-      "digest": "sha256:962d35ddd8b16a7bfb0ae5655781469d6408db72a34d202fc93de9ad802dfd93",
+      "digest": "sha256:a1d9f37a63cca2ef7bef92fcce27a0b148bfe762509335291af68d04342b7753",
       "evidence_files": 3602,
       "evidence_root": "sha256:1b8069934a4cc67803874ebd2ad5de32671fae5ccce1a3ea70aeb532fe8ea86b",
       "files": 8114,
-      "generated_at_commit": "d5918a025a5e246c6b32a0a4f091431848480fcf",
-      "source_tree": "sha256:22a6214803c36813d46cbb4ae2a7a840bf0c0db858f43d6db082541cdc489a2c"
+      "generated_at_commit": "843092c805a32c135abfe955f735af0c39a3e285",
+      "source_tree": "sha256:efc3b4611596268608d8b1c6d7501026b5d3fa111d2a1736403fca178e61e109"
     }
   },
   "history": [],
