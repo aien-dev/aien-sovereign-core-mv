@@ -38,6 +38,9 @@ pub mod science_context;
 pub mod skills;
 pub mod subagents;
 mod telemetry;
+pub mod tool_batch;
+pub mod tool_plan;
+pub mod tool_spill;
 mod tools;
 pub mod turn_journal;
 pub mod turn_recovery;
@@ -440,6 +443,11 @@ async fn main() {
         .with_redactor(crate::vault::redact_secrets)
         .with_counter_from_env();
     let micro_compact = crate::compaction::micro_compact_enabled_from_env();
+    // sc#666: tool batches; large results spill into the session's own folder.
+    let batch = tool_batch::BatchConfig::new(
+        compactor.max_tokens,
+        Some(sessions_dir.join(format!("{}-spill", session_id))),
+    );
 
     loop {
         let prompt_str = format!("{}{}", "AIEN".magenta().bold(), " ❯ ".cyan().bold());
@@ -484,6 +492,7 @@ async fn main() {
                     Some(&compactor),
                     &hook_registry,
                     true,
+                    &batch,
                 )
                 .await
                 {
@@ -578,6 +587,10 @@ async fn run_single_prompt(prompt: &str) {
             return;
         }
     };
+    let batch = tool_batch::BatchConfig::new(
+        crate::compaction::ContextCompactor::default().max_tokens,
+        Some(sessions_dir.join(format!("{}-spill", session_id))),
+    );
     let opening = [
         json!({"role": "system", "content": full_system_prompt}),
         json!({"role": "user", "content": format!("<system_grounding>\n{}\n</system_grounding>\n{}", nesting.grounding_context, turn_prompt)}),
@@ -596,6 +609,7 @@ async fn run_single_prompt(prompt: &str) {
         None,
         &hook_registry,
         false,
+        &batch,
     )
     .await
     {
@@ -633,6 +647,7 @@ async fn run_model_steps(
     compactor: Option<&crate::compaction::ContextCompactor>,
     hook_registry: &crate::hooks::HookRegistry,
     label: bool,
+    batch: &tool_batch::BatchConfig,
 ) -> Option<turn_journal::TurnStop> {
     use turn_journal::TurnStop;
     use turn_recovery::{
@@ -737,10 +752,9 @@ async fn run_model_steps(
             // Completed turn
             return None;
         }
-        if let Err(stop) =
-            turn_journal::run_tool_calls(journal, messages, tool_calls, dispatch_tool)
-        {
-            return Some(stop);
+        match run_tools(journal, messages, tool_calls, batch) {
+            Ok(r) => report_batch(&r),
+            Err(stop) => return Some(stop),
         }
     }
     None
@@ -786,6 +800,56 @@ where
     });
     turn_journal::run_tool_calls(journal, messages, tool_calls, dispatch)?;
     Ok(AutonomousStep::Acted { milestone_done })
+}
+
+/// sc#666: one reply's tool calls as a planned batch. Reads of the same or
+/// different paths run together; a write never runs beside a call on an
+/// overlapping path; shell commands, unknown tools and any call that would ask
+/// the operator run alone, so two approval prompts never share the screen.
+fn run_tools(
+    journal: &mut turn_journal::Journal,
+    messages: &mut Vec<Value>,
+    calls: Vec<(String, Value)>,
+    batch: &tool_batch::BatchConfig,
+) -> Result<tool_batch::BatchReport, turn_journal::TurnStop> {
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let safety = crate::safety::SafetyEngine::default_sovereign_engine();
+    let access = |name: &str, args: &Value| match safety.evaluate(name, args) {
+        crate::safety::SafetyDecision::AskUser(_) => tool_plan::Access::Barrier,
+        _ => tool_plan::access_of(name, args, &cwd),
+    };
+    // Tools reach the async runtime from their own threads through the handle.
+    let handle = tokio::runtime::Handle::current();
+    let dispatch = move |name: &str, args: &Value| {
+        let _runtime = handle.enter();
+        dispatch_tool(name, args)
+    };
+    tool_batch::run_batch(journal, messages, calls, batch, access, dispatch)
+}
+
+fn report_batch(r: &tool_batch::BatchReport) {
+    if r.ran_together > 0 {
+        println!(
+            "{}",
+            format!(
+                "  ⚡ tools: {} ran side by side ({} steps)",
+                r.ran_together, r.segments
+            )
+            .cyan()
+            .dimmed()
+        );
+    }
+    for p in &r.spilled {
+        println!(
+            "{}",
+            format!(
+                "  ⚡ tools: a large result was saved to {} (Allen sees a preview)",
+                p.display()
+            )
+            .cyan()
+            .dimmed()
+        );
+    }
 }
 
 pub async fn run_autonomous_goal(goal_id: &str) {
@@ -1310,5 +1374,49 @@ mod autonomous_journal_tests {
         drop(journal);
         let rep = turn_journal::replay(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert!(rep.in_doubt.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod tool_batch_runtime_tests {
+    use super::*;
+
+    /// sc#666: the real tools, run side by side from plain threads inside the
+    /// real multi-threaded runtime. `dispatch_tool` reaches the runtime
+    /// (`block_in_place`, `Handle::current`) for its hooks; the batch runner
+    /// must hand each thread the runtime handle or this panics.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn real_reads_run_side_by_side_inside_the_runtime() {
+        let d = tempfile::Builder::new()
+            .prefix("aien-666-")
+            .tempdir_in("/tmp")
+            .unwrap();
+        let a = d.path().join("a.txt");
+        let b = d.path().join("b.txt");
+        std::fs::write(&a, "alpha\n").unwrap();
+        std::fs::write(&b, "beta\n").unwrap();
+        let mut journal = turn_journal::Journal::create(&d.path().join("s.journal.jsonl")).unwrap();
+        let mut messages = Vec::new();
+        let batch = tool_batch::BatchConfig::new(24_000, Some(d.path().join("spill")));
+        let calls = vec![
+            (
+                "view_file".to_string(),
+                json!({"path": a.display().to_string()}),
+            ),
+            (
+                "view_file".to_string(),
+                json!({"path": b.display().to_string()}),
+            ),
+        ];
+        let report = run_tools(&mut journal, &mut messages, calls, &batch).unwrap();
+        assert_eq!((report.segments, report.ran_together), (1, 2));
+        assert_eq!(messages.len(), 2);
+        let first = messages[0]["content"].as_str().unwrap();
+        let second = messages[1]["content"].as_str().unwrap();
+        assert!(
+            first.contains("alpha") && !first.contains("CONFINEMENT"),
+            "{first}"
+        );
+        assert!(second.contains("beta"), "{second}");
     }
 }

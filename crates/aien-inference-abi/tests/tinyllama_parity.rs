@@ -81,9 +81,13 @@ fn find_model_checkpoint_path() -> Option<PathBuf> {
         }
     }
 
+    // Hugging Face snapshot entries are symlinks into the cache's blobs/ store, and the
+    // checkpoint loader refuses symlinks by design. Resolve the snapshot entry to its blob so
+    // the loader receives the regular file it requires; the loader opens only this one path.
+    // canonicalize fails when the entry is absent or dangling, matching the old exists() skip.
     let default_snap = PathBuf::from(format!("{}/.cache/huggingface/hub/models--TinyLlama--TinyLlama-1.1B-Chat-v1.0/snapshots/fe8a4ea1ffedaf415f4da2f062534de366a451e6/model.safetensors", std::env::var("HOME").unwrap_or_default()));
-    if default_snap.exists() {
-        return Some(default_snap);
+    if let Ok(blob) = std::fs::canonicalize(&default_snap) {
+        return Some(blob);
     }
 
     let fixture_model = find_fixtures_dir().join("model.safetensors");
