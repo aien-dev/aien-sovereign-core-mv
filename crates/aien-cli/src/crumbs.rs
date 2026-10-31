@@ -230,7 +230,11 @@ fn foreign_crumb_view(dir: &Path) -> DirCrumb {
     let statement = fs::read_to_string(dir.join(CRUMB_FILENAME))
         .ok()
         .and_then(|c| serde_json::from_str::<serde_json::Value>(&c).ok())
-        .and_then(|v| v.get("purpose").and_then(|p| p.as_str()).map(str::to_string));
+        .and_then(|v| {
+            v.get("purpose")
+                .and_then(|p| p.as_str())
+                .map(str::to_string)
+        });
     let purpose = statement.map(|statement| CrumbPurpose {
         statement,
         created_by: "hand-written .crumb".to_string(),
