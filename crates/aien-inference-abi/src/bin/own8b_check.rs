@@ -30,8 +30,14 @@
 //!       exactly; prefill (multi-row) against decode (row by row) on the chip; decode tok/s and
 //!       prefill tok/s. Mutant flags turn a run into a negative control: it must FAIL.
 //!       Writes <receipt-dir>/run.json and log.txt; the shell seals SHA256SUMS.
+//!   own8b_check oracle-b <checkpoint> <golden.json> [<out.json>] [--prompts 1,2,3,4,5]
+//!       Host only, oracle B teacher-forced leg (design section 2.4 B): feeds the golden tokens of
+//!       another checkpoint (the bf16 golden) to this checkpoint's host engine and counts the
+//!       positions where this checkpoint's top-1 equals the golden token. Prior-guess thresholds:
+//!       >= 0.95 over all scored positions and no prompt below 0.90 (MISS goes to Drake as a
+//!       finding about the checkpoint, not as an engine verdict).
 //!
-//! Exit: 0 PASS, 1 FAIL, 2 usage, 3 refused (memory).
+//! Exit: 0 PASS, 1 FAIL (oracle-b: MISS), 2 usage, 3 refused (memory).
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -120,7 +126,7 @@ fn usage() -> ! {
     std::process::exit(2)
 }
 
-const USAGE: &str = "usage: own8b_check golden <checkpoint> <golden.json> [--new N] [--prompts 1,2,..]\n       own8b_check chip <checkpoint> <golden.json> <receipt-dir> [flags, see the source header]";
+const USAGE: &str = "usage: own8b_check golden <checkpoint> <golden.json> [--new N] [--prompts 1,2,..]\n       own8b_check chip <checkpoint> <golden.json> <receipt-dir> [flags, see the source header]\n       own8b_check oracle-b <checkpoint> <golden.json> [<out.json>] [--prompts 1,2,..]";
 
 fn list(s: &str) -> Vec<usize> {
     s.split(',')
@@ -308,6 +314,76 @@ fn golden(a: &Args) {
     });
     std::fs::write(&a.golden, serde_json::to_string_pretty(&doc).unwrap()).expect("write golden");
     eprintln!("wrote {}", a.golden.display());
+}
+
+/// Oracle B, teacher-forced: this checkpoint's host top-1 against another checkpoint's golden tokens.
+fn oracle_b(a: &Args) {
+    let golden: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&a.golden).expect("golden file"))
+            .expect("golden json");
+    let t0 = Instant::now();
+    let (mut e, _) = Qwen3DenseOmegaEngine::load_host(
+        &a.checkpoint,
+        &HostDenseUploader,
+        a.max_context,
+        &mut |_| {},
+    )
+    .expect("host load");
+    eprintln!(
+        "host reference loaded in {:.0}s",
+        t0.elapsed().as_secs_f64()
+    );
+    let (mut agree_all, mut scored_all, mut worst) = (0usize, 0usize, f64::INFINITY);
+    let mut rows = Vec::new();
+    let gprompts = golden["prompts"].as_array().expect("golden prompts");
+    for (idx, gp) in gprompts.iter().enumerate() {
+        if !a.prompt_ids.contains(&(idx + 1)) {
+            continue;
+        }
+        let ids: Vec<u32> = serde_json::from_value(gp["prompt_tokens"].clone()).unwrap();
+        let gold: Vec<u32> = serde_json::from_value(gp["golden"].clone()).unwrap();
+        e.reset();
+        let mut hidden = e.step_batch(&ids).expect("prefill");
+        let (mut agree, mut first_miss) = (0usize, None);
+        for (i, &t) in gold.iter().enumerate() {
+            let (top, _) = top2_margin(&e.logits(&hidden).expect("logits"));
+            if top == t {
+                agree += 1;
+            } else if first_miss.is_none() {
+                first_miss = Some(i);
+            }
+            if i + 1 < gold.len() {
+                hidden = e.step(t).expect("step");
+            }
+        }
+        let rate = agree as f64 / gold.len().max(1) as f64;
+        worst = worst.min(rate);
+        agree_all += agree;
+        scored_all += gold.len();
+        let name = gp["name"].as_str().unwrap_or("?");
+        println!(
+            "ORACLE_B {name}: {agree} of {} teacher-forced positions agree ({rate:.4}), first disagreement {}",
+            gold.len(),
+            first_miss.map_or("none".to_string(), |p| p.to_string())
+        );
+        rows.push(serde_json::json!({"name": name, "scored": gold.len(), "agree": agree, "rate": rate, "first_disagreement": first_miss}));
+    }
+    let overall = agree_all as f64 / scored_all.max(1) as f64;
+    let pass = overall >= 0.95 && worst >= 0.90;
+    let verdict = if pass { "PASS" } else { "MISS" };
+    println!(
+        "SUMMARY oracle-b teacher-forced {agree_all} of {scored_all} ({overall:.4}), worst prompt {worst:.4}, prior guesses >= 0.95 overall and >= 0.90 per prompt -> {verdict}"
+    );
+    if let Some(out) = &a.receipt {
+        let doc = serde_json::json!({
+            "checkpoint": a.checkpoint.display().to_string(),
+            "golden": a.golden.display().to_string(),
+            "prompts": rows, "agree": agree_all, "scored": scored_all,
+            "overall": overall, "worst_prompt": worst, "verdict": verdict,
+        });
+        std::fs::write(out, serde_json::to_string_pretty(&doc).unwrap()).expect("oracle-b json");
+    }
+    std::process::exit(if pass { 0 } else { 1 });
 }
 
 /// Per traced layer: worst cosine and p95_rel of x_out and of the attention output.
@@ -635,6 +711,7 @@ fn main() {
     match a.mode.as_str() {
         "golden" => golden(&a),
         "chip" => chip(&a),
+        "oracle-b" => oracle_b(&a),
         _ => usage(),
     }
 }
