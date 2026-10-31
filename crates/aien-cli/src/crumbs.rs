@@ -381,30 +381,49 @@ pub fn record_directory_crumb(
     }
     save_local_crumb(&dir, &local_data);
 
-    // If dir has a parent within project workspace, bubble awareness to parent .crumb.local
-    if let Some(parent) = dir.parent() {
-        let platform = crate::platform::PlatformContext::detect();
-        if parent.starts_with(&platform.home_dir) && parent != dir {
-            let mut parent_local = load_local_crumb(parent);
-            let bubble_item = CrumbHistoryItem {
-                crumb_id: format!("bubble-{}", Utc::now().timestamp_nanos_opt().unwrap_or(0)),
-                timestamp: Utc::now().to_rfc3339(),
-                agent_id: agent_id.to_string(),
-                session_id: session_id.to_string(),
-                action: format!("sub:{}", action),
-                target: format!("{}/{}", dir_name, target_name),
-                intent: intent.to_string(),
-                vector: vector.to_string(),
-            };
-            parent_local.history.push(bubble_item);
-            if parent_local.history.len() > 50 {
-                parent_local
-                    .history
-                    .drain(0..parent_local.history.len() - 50);
-            }
-            save_local_crumb(parent, &parent_local);
+    // Bubble awareness to the parent's .crumb.local only when that parent is
+    // itself inside a permitted workspace.
+    let platform = crate::platform::PlatformContext::detect();
+    if let Some(parent) = bubble_parent(
+        &dir,
+        &platform.home_dir,
+        &crate::fs_bind::permitted_workspaces(),
+    ) {
+        let mut parent_local = load_local_crumb(parent);
+        let bubble_item = CrumbHistoryItem {
+            crumb_id: format!("bubble-{}", Utc::now().timestamp_nanos_opt().unwrap_or(0)),
+            timestamp: Utc::now().to_rfc3339(),
+            agent_id: agent_id.to_string(),
+            session_id: session_id.to_string(),
+            action: format!("sub:{}", action),
+            target: format!("{}/{}", dir_name, target_name),
+            intent: intent.to_string(),
+            vector: vector.to_string(),
+        };
+        parent_local.history.push(bubble_item);
+        if parent_local.history.len() > 50 {
+            parent_local
+                .history
+                .drain(0..parent_local.history.len() - 50);
         }
+        save_local_crumb(parent, &parent_local);
     }
+}
+
+/// The parent directory a crumb record bubbles into. It must sit under the
+/// home directory and inside a permitted workspace: the parent of a workspace
+/// root (`~` for `~/workspace`) is outside the allow list (DRA-47).
+fn bubble_parent<'a>(
+    dir: &'a Path,
+    home: &Path,
+    workspaces: &[std::path::PathBuf],
+) -> Option<&'a Path> {
+    let parent = dir.parent().filter(|p| *p != dir)?;
+    if !parent.starts_with(home) {
+        return None;
+    }
+    crate::safety::validate_workspace_path(parent, workspaces).ok()?;
+    Some(parent)
 }
 
 /// Leaves a whisper message in a directory .crumb.local file.
@@ -680,4 +699,29 @@ fn auto_sense_directory_purpose(dir: &Path) -> String {
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| "workspace".to_string());
     format!("Workspace subsystem directory for {}", dir_name)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// DRA-47: recording in a workspace root must not bubble into the root's
+    /// parent, which is under `$HOME` but outside the allow list. One level
+    /// down, the parent is the workspace and the bubble stays.
+    #[test]
+    fn bubble_stays_inside_a_permitted_workspace() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path().canonicalize().unwrap();
+        let ws = home.join("workspace");
+        std::fs::create_dir_all(ws.join("sub")).unwrap();
+        let workspaces = vec![ws.clone()];
+        assert_eq!(bubble_parent(&ws, &home, &workspaces), None);
+        assert_eq!(
+            bubble_parent(&ws.join("sub"), &home, &workspaces),
+            Some(ws.as_path())
+        );
+        let elsewhere = tempfile::tempdir().unwrap();
+        let elsewhere = elsewhere.path().canonicalize().unwrap().join("sub");
+        assert_eq!(bubble_parent(&elsewhere, &home, &workspaces), None);
+    }
 }
