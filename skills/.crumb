@@ -30,51 +30,6 @@
   "description": "Agent skills registry directory.",
   "dir_name": "skills",
   "dir_path": "skills",
-  "extensions": {
-    "generated": {
-      "children": [
-        {
-          "digest": "7e3010879f3825cb16a0651afe37835aa9ba6ac4a1b1c2a7d03f4767dbd136a2",
-          "last_commit": "b2fef5cb",
-          "name": "gpu-telemetry",
-          "purpose": ""
-        },
-        {
-          "digest": "b6f288e41c637959bf1df32b28d9b8a2088f531681f6319f6587f8b62d19b8ba",
-          "last_commit": "b2fef5cb",
-          "name": "radicle-sync",
-          "purpose": ""
-        },
-        {
-          "digest": "9d5a5630ff03ffc43e893350b017638d6d39fbae9e537d565df217e037bfebf7",
-          "last_commit": "b2fef5cb",
-          "name": "scaffold-project",
-          "purpose": ""
-        },
-        {
-          "digest": "353de44fc43ddd7dbfef532e859a869ab21d0716133d551c5760a7c742a1ee11",
-          "last_commit": "22b2b8f8",
-          "name": "self-improvement",
-          "purpose": ""
-        },
-        {
-          "digest": "db3e90e6d686daed3e36254b4b540f0592ae526710a3b0fab7ee585c2a34c305",
-          "last_commit": "b2fef5cb",
-          "name": "unslop",
-          "purpose": ""
-        }
-      ],
-      "children_root": "sha256:e8a36ecacfe424edb0f8002215231ed2a888bba2456e71c6d2d102f4db050942",
-      "compiled_at": "2026-10-31T02:11:42Z",
-      "compiler": "crumb-compile/1",
-      "digest": "sha256:94404d7d51325704277e23d765c765c40de64e937bce1c6a2f6d5864eca7f0d7",
-      "evidence_files": 0,
-      "evidence_root": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "files": 9,
-      "generated_at_commit": "22b2b8f8562d3ae84782bfb6ac484dfa131e0cfd",
-      "source_tree": "sha256:e4a8412dd39d648f66711d0fde620685aaf4a4f36f6ef9487eddfdedefa374e9"
-    }
-  },
   "history": [
     {
       "action": "seed:knowledge",

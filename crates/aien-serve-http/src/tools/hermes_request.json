@@ -1,0 +1,20 @@
+{
+  "messages": [
+    {"content": "You are terse.", "role": "system"},
+    {"content": "Read /tmp/a.txt and give the weather in Zürich.", "role": "user"},
+    {"content": "Checking both.", "role": "assistant", "tool_calls": [
+      {"function": {"arguments": "{\"path\": \"/tmp/a.txt\"}", "name": "read_file"}, "id": "c0", "type": "function"},
+      {"function": {"arguments": {"city": "Zürich", "days": 2}, "name": "get_weather"}, "id": "c1", "type": "function"}
+    ]},
+    {"content": "hello", "role": "tool", "tool_call_id": "c0"},
+    {"content": "{\"temp\": 18}", "role": "tool", "tool_call_id": "c1"},
+    {"content": null, "role": "assistant", "tool_calls": [
+      {"function": {"arguments": "{\"path\": \"/tmp/b.txt\"}", "name": "read_file"}, "id": "c2", "type": "function"}
+    ]},
+    {"content": "world", "role": "tool", "tool_call_id": "c2"}
+  ],
+  "tools": [
+    {"function": {"description": "Read a file", "name": "read_file", "parameters": {"properties": {"path": {"type": "string"}}, "required": ["path"], "type": "object"}}, "type": "function"},
+    {"function": {"description": "Wetter für eine Stadt", "name": "get_weather", "parameters": {"properties": {"city": {"type": "string"}, "days": {"type": "integer"}}, "required": ["city"], "type": "object"}}, "type": "function"}
+  ]
+}

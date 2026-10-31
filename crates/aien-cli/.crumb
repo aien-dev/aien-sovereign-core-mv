@@ -30,27 +30,6 @@
   "description": "AIEN CLI codebase.",
   "dir_name": "aien-cli",
   "dir_path": "crates/aien-cli",
-  "extensions": {
-    "generated": {
-      "children": [
-        {
-          "digest": "0bbb15bab2a396c72f706ced37387345073600d34062ba45cfff228a2bb05ced",
-          "last_commit": "a10c293e",
-          "name": "src",
-          "purpose": ""
-        }
-      ],
-      "children_root": "sha256:8093f857ca8460861f7faa98ada43f6cfdf507c7d05c937f82817f8c3e54dc63",
-      "compiled_at": "2026-10-31T02:34:34Z",
-      "compiler": "crumb-compile/1",
-      "digest": "sha256:a8a577c77d9c511bce408fc5251c4c0e1c39fb739a3ad254b35a366f6ec4e716",
-      "evidence_files": 0,
-      "evidence_root": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "files": 52,
-      "generated_at_commit": "a10c293e9f91ad4e9714c3917ed42a82db0b1ec3",
-      "source_tree": "sha256:03943949d6c32cc4e3c92f2aa2988f9540de29bfacfd893e28b5817accb2a65e"
-    }
-  },
   "history": [
     {
       "action": "signin",

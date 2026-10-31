@@ -1,19 +1,5 @@
 {
   "dir_path": "./skills/self-improvement",
-  "extensions": {
-    "generated": {
-      "children": [],
-      "children_root": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "compiled_at": "2026-10-31T02:11:42Z",
-      "compiler": "crumb-compile/1",
-      "digest": "sha256:353de44fc43ddd7dbfef532e859a869ab21d0716133d551c5760a7c742a1ee11",
-      "evidence_files": 0,
-      "evidence_root": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "files": 1,
-      "generated_at_commit": "22b2b8f8562d3ae84782bfb6ac484dfa131e0cfd",
-      "source_tree": "sha256:629e81445429e8f3c4ae81db4286eb0a21e4c3477c1406014f24f7c505669671"
-    }
-  },
   "parent": {
     "canonical": "./skills",
     "name": "skills"

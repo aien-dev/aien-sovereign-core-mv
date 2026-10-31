@@ -37,7 +37,7 @@ use crate::tensor::sample_argmax;
 pub mod echo_chain;
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 /// What the controller wants from a head.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -123,6 +123,11 @@ pub trait ForwardPass: Send {
     }
     /// The K/V identity entries, or `Err(reason)` when K/V from this run must never be stored.
     fn kv_identity(&self) -> Result<KvIdentityInputs, String>;
+    /// Migration only (ADR 0004 steps 3 and 4; step 5 deletes it): the controller shows the
+    /// model its ledger before every forward call, so a model that still keeps its own copy of
+    /// the history (the 30B's mirror) can take the tokens of a restore or import it did not see
+    /// (I1). Default: nothing.
+    fn mirror_ledger(&mut self, _history: &[u32]) {}
 }
 
 /// The default sparse output head: `next(head, Logits)`, then the rows gathered into
@@ -486,6 +491,7 @@ impl<M: ForwardPass> GenerationController<M> {
         f: impl FnOnce(&mut M, usize) -> Result<(), String>,
     ) -> Result<(), String> {
         let pos = self.history.len();
+        self.model.mirror_ledger(&self.history);
         match f(&mut self.model, pos) {
             Ok(()) => {
                 self.history.extend_from_slice(tokens);

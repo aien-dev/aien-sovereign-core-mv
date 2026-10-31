@@ -60,20 +60,6 @@
   "description": "Workspace directory",
   "dir_name": "src",
   "dir_path": "crates/aien-cli/src",
-  "extensions": {
-    "generated": {
-      "children": [],
-      "children_root": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "compiled_at": "2026-10-31T02:34:34Z",
-      "compiler": "crumb-compile/1",
-      "digest": "sha256:0bbb15bab2a396c72f706ced37387345073600d34062ba45cfff228a2bb05ced",
-      "evidence_files": 0,
-      "evidence_root": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "files": 39,
-      "generated_at_commit": "a10c293e9f91ad4e9714c3917ed42a82db0b1ec3",
-      "source_tree": "sha256:0f2b263231921b65413e9fdcc1e38b3e018d01fb5b5555e5c718a030ac9f3152"
-    }
-  },
   "history": [
     {
       "action": "view",

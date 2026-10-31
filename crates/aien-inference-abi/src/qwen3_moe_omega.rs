@@ -43,6 +43,7 @@ use rayon::prelude::*;
 use crate::moe_plan::MoeBatchPlan;
 use crate::qwen3_moe::{bf16_to_f32, f32_to_bf16, fp8_table, shard_path, Shard, FP8_BLOCK};
 use crate::resident::transpose_bf16_for_upload;
+mod forward_pass;
 pub mod w8a8_control;
 mod whole_prompt;
 
@@ -3319,6 +3320,14 @@ pub struct Qwen3MoeOmegaEngine {
     /// Route decode steps with the device router launch when the weights carry one. The host
     /// routing mutant forces the host path for its steps.
     pub device_routing: bool,
+    /// Self-draft mode (aienix#4, Heartbeat H0): per layer, the sorted expert ids the router may
+    /// pick from. `None` (the default) is the exact full router. When set, `step` routes on the
+    /// host, takes top_k among the allowed experts only and renormalizes their weights exactly as
+    /// the full router does; batched prefill and the one-list decode graph refuse or step around it.
+    draft_allowed: Option<Vec<Vec<u32>>>,
+    /// Router-choice counter (`layers x experts`, row-major): every `step` adds one per chosen
+    /// expert when set. Calibration traces for the self-draft resident set.
+    pub expert_counts: Option<Vec<u64>>,
     pub last_timing: StepTiming,
     /// Prompt tokens per prefill step (1 = token-at-a-time). Batched prefill needs FP8 attention
     /// and experts; with the grouped GEMM a step takes up to 128 tokens, with the grouped GEMV 8
@@ -3335,6 +3344,14 @@ pub struct Qwen3MoeOmegaEngine {
     history: Vec<u32>,
     /// Whole-prompt prefill driver (OFF = None; `set_whole_prompt`). See `whole_prompt.rs`.
     whole_prompt: Option<Box<whole_prompt::EngineWholePrompt>>,
+    /// The host head (ADR 0004 adapter): the last forward call's final hidden state, unread.
+    /// `None` once read or forgotten. Empty on the decode graph, whose head is its pending token.
+    head_hidden: Option<Vec<f32>>,
+    /// The logits `ForwardPass::next` lends out (the last head read).
+    head_logits: Vec<f32>,
+    /// The cache was lent through `ForwardPass::kv` since the last forward call: the mirror's
+    /// tokens are taken from the ledger at the next one.
+    kv_lent: bool,
 }
 
 impl Qwen3MoeOmegaEngine {
@@ -3350,6 +3367,8 @@ impl Qwen3MoeOmegaEngine {
             traces: Vec::new(),
             routing_mutant: false,
             device_routing,
+            draft_allowed: None,
+            expert_counts: None,
             last_timing: StepTiming::default(),
             prefill_chunk: if prefill_gemm {
                 PREFILL_CHUNK_GEMM
@@ -3361,7 +3380,51 @@ impl Qwen3MoeOmegaEngine {
             pos: 0,
             history: Vec::new(),
             whole_prompt: None,
+            head_hidden: None,
+            head_logits: Vec::new(),
+            kv_lent: false,
         }
+    }
+
+    /// Turns self-draft mode on with `allowed[layer]` = the expert ids the router may pick at that
+    /// layer, or off with `None` (the exact full router again). Each list is sorted and duplicate
+    /// ids are merged; refuses a mask that is not one list per layer, a layer with fewer than
+    /// top_k distinct ids, or an id out of range.
+    pub fn set_draft_experts(&mut self, allowed: Option<Vec<Vec<u32>>>) -> Result<(), String> {
+        let c = &self.weights.config;
+        let Some(mut allowed) = allowed else {
+            self.draft_allowed = None;
+            return Ok(());
+        };
+        if allowed.len() != c.layers {
+            return Err(format!(
+                "draft mask: {} layers given, model has {}",
+                allowed.len(),
+                c.layers
+            ));
+        }
+        for (l, ids) in allowed.iter_mut().enumerate() {
+            ids.sort_unstable();
+            ids.dedup();
+            if ids.len() < c.top_k {
+                return Err(format!(
+                    "draft mask layer {l}: {} distinct experts, top_k is {}",
+                    ids.len(),
+                    c.top_k
+                ));
+            }
+            if ids.last().is_some_and(|&x| x as usize >= c.experts) {
+                return Err(format!("draft mask layer {l}: expert id out of range"));
+            }
+        }
+        self.dgraph_clear();
+        self.draft_allowed = Some(allowed);
+        Ok(())
+    }
+
+    /// True while self-draft mode (an allowed-expert mask) is on.
+    pub fn draft_on(&self) -> bool {
+        self.draft_allowed.is_some()
     }
 
     /// Whether every layer runs attention and experts on the FP8 grouped GEMV (the only
@@ -3384,6 +3447,9 @@ impl Qwen3MoeOmegaEngine {
         let m = tokens.len();
         if m == 0 {
             return Err("step_batch: empty batch".into());
+        }
+        if self.draft_allowed.is_some() {
+            return Err("step_batch: self-draft mode is on (draft steps go through step)".into());
         }
         let top_k = self.weights.config.top_k;
         if m == 1 || !self.trace_layers.is_empty() || !self.batched_prefill_possible() {
@@ -4121,7 +4187,9 @@ impl Qwen3MoeOmegaEngine {
             // The host routing mutant (a host-side swap of the chosen ids) needs the host path.
             let device_router = match (&self.weights.device_router, &layer.experts) {
                 (Some(r), ExpertWeights::Fp8 { .. })
-                    if self.device_routing && !self.routing_mutant =>
+                    if self.device_routing
+                        && !self.routing_mutant
+                        && self.draft_allowed.is_none() =>
                 {
                     Some(r)
                 }
@@ -4159,8 +4227,21 @@ impl Qwen3MoeOmegaEngine {
                         .map(|(a, b)| a * b)
                         .sum();
                 }
-                let plan = MoeBatchPlan::from_logits(&logits, 1, e, top_k)
-                    .map_err(|e| format!("layer {layer_idx} routing: {e}"))?;
+                let plan = match self.draft_allowed.as_ref().map(|a| &a[layer_idx]) {
+                    None => MoeBatchPlan::from_logits(&logits, 1, e, top_k)
+                        .map_err(|e| format!("layer {layer_idx} routing: {e}"))?,
+                    // Self-draft: the same softmax/top-k/renormalize over the allowed logits
+                    // only (ascending ids, so ties still go to the lower expert id).
+                    Some(ids) => {
+                        let sub: Vec<f32> = ids.iter().map(|&x| logits[x as usize]).collect();
+                        let mut p = MoeBatchPlan::from_logits(&sub, 1, sub.len(), top_k)
+                            .map_err(|e| format!("layer {layer_idx} draft routing: {e}"))?;
+                        p.topk_experts
+                            .iter_mut()
+                            .for_each(|x| *x = ids[*x as usize]);
+                        p
+                    }
+                };
                 let mut experts: Vec<u32> = plan.topk_experts.clone();
                 if self.routing_mutant {
                     experts.iter_mut().for_each(|ex| *ex = (*ex + 1) % e as u32);
@@ -4172,6 +4253,11 @@ impl Qwen3MoeOmegaEngine {
                 t4 = Instant::now();
                 (experts, plan.topk_weights.clone())
             };
+            if let Some(counts) = self.expert_counts.as_mut() {
+                for &ex in &experts {
+                    counts[layer_idx * e + ex as usize] += 1;
+                }
+            }
 
             moe_out.iter_mut().for_each(|v| *v = 0.0);
             match &layer.experts {
@@ -4789,6 +4875,83 @@ mod forward_tests {
             eng.weights().device_router.is_none()
                 && matches!(eng.weights().lm_head, LmHead::Gemv(_))
         );
+    }
+
+    /// Logits of every step of `tokens` from an empty KV, bit patterns.
+    fn step_bits(e: &mut Qwen3MoeOmegaEngine, tokens: &[u32]) -> Vec<Vec<u32>> {
+        e.reset();
+        tokens
+            .iter()
+            .map(|&t| {
+                let h = e.step(t).unwrap();
+                e.logits(&h).unwrap().iter().map(|v| v.to_bits()).collect()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn draft_mask_off_is_bit_identical_and_on_routes_only_allowed_experts() {
+        let tokens = [5u32, 17, 42, 3, 9, 60];
+        for (paths, fakes) in [
+            (DevicePaths::default(), true),
+            (
+                DevicePaths {
+                    router: PathChoice::Host,
+                    lm_head: PathChoice::Host,
+                },
+                false,
+            ),
+        ] {
+            let (mut base, up_b, c) = engine_fakes(WeightFormat::Fp8All, paths, fakes).unwrap();
+            let (mut e, up, _) = engine_fakes(WeightFormat::Fp8All, paths, fakes).unwrap();
+            let want = step_bits(&mut base, &tokens);
+            assert!(!e.draft_on());
+            // Default off: identical, and the device router (when present) still runs.
+            assert_eq!(step_bits(&mut e, &tokens), want);
+            assert_eq!(
+                up.dev.lock().unwrap().routes,
+                up_b.dev.lock().unwrap().routes
+            );
+            // On with every expert allowed: the host path gives the same bits.
+            let all: Vec<Vec<u32>> = vec![(0..c.experts as u32).collect(); c.layers];
+            e.set_draft_experts(Some(all)).unwrap();
+            assert_eq!(step_bits(&mut e, &tokens), want);
+            // On then off again: identical to never having been on.
+            e.set_draft_experts(None).unwrap();
+            assert_eq!(step_bits(&mut e, &tokens), want);
+            // A restricted mask: only allowed experts are ever chosen, and the output moves.
+            let allowed = vec![vec![1u32, 3], vec![0u32, 2]];
+            e.set_draft_experts(Some(allowed.clone())).unwrap();
+            e.expert_counts = Some(vec![0; c.layers * c.experts]);
+            assert_ne!(step_bits(&mut e, &tokens), want);
+            let counts = e.expert_counts.take().unwrap();
+            for l in 0..c.layers {
+                for x in 0..c.experts {
+                    let n = counts[l * c.experts + x];
+                    assert_eq!(
+                        n > 0,
+                        allowed[l].contains(&(x as u32)),
+                        "layer {l} expert {x}"
+                    );
+                }
+            }
+            // Batched prefill refuses rather than silently running the full router.
+            assert!(e
+                .step_batch(&tokens[..2])
+                .unwrap_err()
+                .contains("self-draft"));
+        }
+        // Bad masks are refused.
+        let (mut e, _, c) =
+            engine_fakes(WeightFormat::Fp8All, DevicePaths::default(), true).unwrap();
+        assert!(e.set_draft_experts(Some(vec![vec![0, 1]])).is_err());
+        assert!(e
+            .set_draft_experts(Some(vec![vec![0, 0]; c.layers]))
+            .is_err());
+        assert!(e
+            .set_draft_experts(Some(vec![vec![0, c.experts as u32]; c.layers]))
+            .is_err());
+        assert!(!e.draft_on());
     }
 
     #[test]
