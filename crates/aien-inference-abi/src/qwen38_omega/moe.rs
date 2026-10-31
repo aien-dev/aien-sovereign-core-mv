@@ -458,6 +458,17 @@ impl Qwen38Omega {
             );
             (Some(screen), Some(coef))
         };
+        // DRA-69 (TEST/BENCH knob, default off): AIEN_Q36_LM_HEAD_FP8=1 makes the fp8b screen the graph's lm_head (FP8 logits for
+        // every token; the exact head then stands aside). Pair with AIEN_OMEGA_Q36_FP8_HEAD=1 for one head launch per stroke.
+        if std::env::var("AIEN_Q36_LM_HEAD_FP8").as_deref() == Ok("1") {
+            let screen = head_screen
+                .as_ref()
+                .ok_or("AIEN_Q36_LM_HEAD_FP8=1 needs the fp8b screen (leave AIEN_Q36_EXACT_HEAD unset)")?;
+            // SAFETY: the screen is owned by the returned value and dropped after the graph (field order).
+            unsafe { graph.set_lm_head_fp8(screen.as_raw()) }
+                .map_err(gpu("q36 graph set_lm_head_fp8"))?;
+            eprintln!("qwen36 omega: FP8 lm_head ON (AIEN_Q36_LM_HEAD_FP8=1, the fp8b screen; TEST/BENCH, not for serving)");
+        }
         drop(head);
         // Negative controls for the gates (TEST ONLY): AIEN_Q36_TEST_MUTANT=4 drops the shared expert
         // from COMBINE, 1 shifts the SWIGLU up half, 2 the attention GATHER, 3 drops the attention gate,
