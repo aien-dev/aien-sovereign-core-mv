@@ -77,8 +77,11 @@ resolves only through it; a file of the same name inside the worktree is never u
 `/usr/local/bin/crumb` (root 0755) is built by `install.sh` from aien-architecture commit
 `12ad0141b41ec67ef5aa51cb4e1815894c1083bb` (`tools/crumb/crumb.c`, git blob `c272f293...`, checked before building;
 source read from the git object store of `AIEN_ARCH_CLONE`, default `~/workspace/aien-architecture`) with
-`cc -O2 -Wall -std=c11`. With gcc 13.3.0 the binary's sha256 is `2fb09401f1e09682...` (2026-10-18). The 94fffbcf88492c5a1c54211b5126c8a6c370a98d build matched the operator's
-`~/.local/bin/crumb` on 2026-10-11. To move the pin, change `CRUMB_COMMIT` and `CRUMB_BLOB` in `install.sh` in a PR.
+`cc -O2 -Wall -std=c11`. With gcc 13.3.0 the binary's sha256 is `2fb09401f1e09682...` (built on the Spark 2026-10-18;
+the installed `/usr/local/bin/crumb` had this sha256 on 2026-10-31). The previous pin `94fffbcf` built to `22015e6b...`,
+which matched the operator's `~/.local/bin/crumb` on 2026-10-11. This repository's `crumb.lock` names the same commit,
+so the CRUMB-VERIFY gate, the worker's readiness check and this sandbox tool agree. To move the pin, change
+`CRUMB_COMMIT` and `CRUMB_BLOB` in `install.sh` and `crumb.lock` in one PR.
 
 The worker's readiness check does not trust any PATH `crumb`: it builds the tool each repository names in `crumb.lock`
 (aien-architecture: the tool at the commit under test) and caches it under `<state>/crumb-tool/<pin>/` (sc#602,
