@@ -333,14 +333,28 @@ fn inference_requires_authorization_and_local_json_origin() {
     assert_eq!(json(&good)["choices"][0]["message"]["content"], "accepted");
 }
 
-struct CountingCodec(std::sync::atomic::AtomicUsize);
+/// Counts `encode` calls. The first call is the occupying request's own prompt: it reports that it
+/// has been counted and then waits for the test's release. The server takes the engine slot before
+/// reading the body and keeps it through tokenizing, so while that call waits the server is
+/// saturated and the count already includes the occupying request; any later increment comes from
+/// a request that met the busy server.
+struct CountingCodec {
+    calls: std::sync::atomic::AtomicUsize,
+    entered: std::sync::mpsc::Sender<()>,
+    release: std::sync::Mutex<std::sync::mpsc::Receiver<()>>,
+}
 
 impl Codec for CountingCodec {
     fn render_chat(&self, turns: &[(&str, &str)]) -> Result<String, CodecError> {
         ByteCodec.render_chat(turns)
     }
     fn encode(&self, text: &str) -> Result<Vec<u32>, CodecError> {
-        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        if self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+            let _ = self.entered.send(());
+            // Ends on the test's release, or with an error once a failing test has dropped its
+            // sender, so a failed assertion never leaves this request (and the runtime) waiting.
+            let _ = self.release.lock().unwrap().recv();
+        }
         ByteCodec.encode(text)
     }
     fn decode(&self, ids: &[u32]) -> Result<String, CodecError> {
@@ -355,7 +369,13 @@ impl Codec for CountingCodec {
 fn saturated_request_does_not_read_body_or_invoke_codec() {
     use std::sync::atomic::Ordering;
     let rt = tokio::runtime::Runtime::new().unwrap();
-    let codec = Arc::new(CountingCodec(std::sync::atomic::AtomicUsize::new(0)));
+    let (entered_tx, entered) = std::sync::mpsc::channel();
+    let (release, release_rx) = std::sync::mpsc::channel();
+    let codec = Arc::new(CountingCodec {
+        calls: std::sync::atomic::AtomicUsize::new(0),
+        entered: entered_tx,
+        release: std::sync::Mutex::new(release_rx),
+    });
     let cfg = ServerConfig {
         port: 0,
         model_id: "test-model".into(),
@@ -363,21 +383,18 @@ fn saturated_request_does_not_read_body_or_invoke_codec() {
         ..ServerConfig::default()
     };
     let (addr, _h) = rt
-        .block_on(serve(
-            cfg,
-            Arc::new(stub(&"x".repeat(60)).with_delay(Duration::from_millis(25))),
-            codec.clone(),
-        ))
+        .block_on(serve(cfg, Arc::new(stub(&"x".repeat(60))), codec.clone()))
         .unwrap();
     let first = std::thread::spawn(move || chat(addr, PROMPT));
-    for _ in 0..100 {
-        if json(&request(addr, "GET", "/health", None))["busy"] == true {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
+    // `/health` reports busy as soon as the slot is taken, before the occupying request has read
+    // its body or tokenized; wait for its own encode so that call is not charged to the requests
+    // below.
+    entered
+        .recv_timeout(Duration::from_secs(30))
+        .expect("occupying request never reached the tokenizer");
     assert_eq!(json(&request(addr, "GET", "/health", None))["busy"], true);
-    let before = codec.0.load(Ordering::SeqCst);
+    let before = codec.calls.load(Ordering::SeqCst);
+    assert_eq!(before, 1, "only the occupying request has tokenized");
     let full = raw_post(
         addr,
         &format!("Authorization: Bearer {TOKEN}\r\nContent-Type: application/json\r\n"),
@@ -385,14 +402,15 @@ fn saturated_request_does_not_read_body_or_invoke_codec() {
     );
     assert_eq!(full.status, 503);
     assert_eq!(
-        codec.0.load(Ordering::SeqCst),
+        codec.calls.load(Ordering::SeqCst),
         before,
         "busy request invoked tokenizer"
     );
     let incomplete = format!("POST /v1/chat/completions HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {TOKEN}\r\nContent-Type: application/json\r\nContent-Length: 100\r\nConnection: close\r\n\r\n");
     let rejected = raw_request(addr, &incomplete);
     assert_eq!(rejected.status, 503, "{}", rejected.body);
-    assert_eq!(codec.0.load(Ordering::SeqCst), before);
+    assert_eq!(codec.calls.load(Ordering::SeqCst), before);
+    release.send(()).unwrap();
     assert_eq!(first.join().unwrap().status, 200);
 }
 
