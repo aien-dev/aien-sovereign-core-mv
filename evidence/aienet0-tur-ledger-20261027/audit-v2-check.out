@@ -1,0 +1,154 @@
+omc d6290c7663c2b4bafb59eb3fdf812476e977f4c144def71095c6248ef9b96b84
+src 8e16f25dd7be21d9dea94252b4ad0ab3b30ac107e4445ed81224d29982e1aadd om/tur-ledger/tur-ledger.om
+sha 4f88dad60464eacd1655ba980f66b74000c6966ec0becbb80346ac1898e87a76 om/vendor/sha256.om
+ec 909f37c797e187bd0663bde9f57c75d6ce41eb2c9726a6b50d6fc714e424c060 omega-mv@6999fa9e6dae4847c155ef4eacaece74f491d3ca
+gate 8f96325dc3db714edf6837d4c78fb3e8ccc27dcc8e7a56798a5079fa152b2c21
+OpenSSL 3.0.13 30 Jan 2024 (Library: OpenSSL 3.0.13 30 Jan 2024)
+bin 0338edb18a1fba9ecd7fa8ae294045184bfeb2e72530340017ce719acc682768
+PASS oracle.prefund
+PASS oracle.overdraft-101
+PASS oracle.reserve-7-40
+PASS oracle.req-after-reserve
+PASS oracle.second-reservation
+PASS oracle.settle-unknown-job
+PASS oracle.change-mismatch
+PASS oracle.settle
+PASS oracle.zero-replay
+PASS oracle.requester
+PASS oracle.provider
+PASS oracle.verifier
+PASS oracle.observer
+PASS oracle.audit
+PASS oracle.chain-sha256sum
+PASS prefund.first
+PASS prefund.dup
+PASS prefund.conflict-amount
+PASS prefund.conflict-account
+PASS prefund.balance
+PASS usage.bad-job
+PASS usage.leading-zero
+PASS usage.zero-amount
+PASS usage.arity
+PASS usage.command
+PASS usage.u64-overflow
+PASS once.settle
+PASS once.same-receipt
+PASS once.other-receipt
+PASS once.same-receipt-other-split
+PASS once.refund-after-settle
+PASS once.journal-unchanged
+PASS concurrent.settle-distinct (settled 1, already 0, refused 19)
+PASS concurrent.settle-same (settled 1, already 19, refused 0)
+PASS concurrent.double-debit (one reserve, nineteen insufficient-funds)
+PASS lock.blocks-while-held (timeout exit 124, then exit 0)
+PASS fsync.before-ack (pwrite64 line 1 < fsync(3) line 2 < write(1) line 4)
+PASS torn.unterminated (recovered torn-tail 138 bytes sha256 3e44b72d48977086fbd8675d072b748fe547ca43e7e124f9769f7c54d76db3ff)
+PASS corrupt.terminated-bad-hash (exit 5, unchanged journal)
+PASS torn.cut-last-record (recovered torn-tail 194 bytes sha256 54a19b41e44c3889a37b3f266238ae691ec3dec938d458eb55b518fe0a3e83c7)
+PASS corrupt.amount-edited
+PASS corrupt.journal-untouched
+PASS corrupt.line-deleted
+PASS corrupt.lines-swapped
+PASS corrupt.genesis-edited
+PASS conserve.forged-chain-valid
+PASS conserve.payout-over-escrow
+PASS conserve.refused-for-every-command
+PASS auth.unsigned-prefund (exit 2, unchanged journal)
+PASS auth.unsigned-reserve (exit 2, unchanged journal)
+PASS auth.unsigned-settle (exit 2, unchanged journal)
+PASS auth.unsigned-refund (exit 2, unchanged journal)
+PASS auth.wrong-issuer-key (exit 16, unchanged journal)
+PASS auth.changed-amount (exit 16, unchanged journal)
+PASS auth.changed-quote (exit 16, unchanged journal)
+PASS auth.account-spoof (exit 16, unchanged journal)
+PASS auth.wrong-verifier-key (exit 16, unchanged journal)
+PASS auth.unauthorized-settle (exit 16, unchanged journal)
+PASS auth.changed-job (exit 16, unchanged journal)
+PASS auth.forged-receipt-hash (exit 16, unchanged journal)
+PASS auth.mutated-attestation-digest (exit 16, unchanged journal)
+PASS auth.mutated-signed-job-digest (exit 16, unchanged journal)
+PASS auth.issuer-is-not-verifier (exit 16, unchanged journal)
+PASS auth.kill-after-fsync-before-ack
+PASS auth.lost-response-retry
+PASS auth.honest-provider
+PASS auth.changed-evidence-conflicts-even-when-signed (exit 11, unchanged journal)
+PASS auth.unsigned-replay-last (exit 5, unchanged journal)
+PASS auth.wrong-key-replay-last (exit 5, unchanged journal)
+PASS auth.old-journal-refused (exit 5, unchanged journal)
+PASS auth.changed-policy-pins (exit 5, unchanged journal)
+PASS io.failed-sync-rollback-1 (exit 3, original journal, size 1049)
+PASS io.failed-sync-rollback-2 (exit 3, original journal, size 1049)
+PASS io.no-torn-tail-after-rollback
+PASS io.retry-writes-and-syncs
+PASS io.duplicate-prefund-needs-sync
+PASS io.duplicate-prefund-retry-synced
+PASS io.duplicate-reserve-needs-sync
+PASS io.duplicate-reserve-retry-synced
+PASS io.duplicate-settle-needs-sync
+PASS io.duplicate-settle-retry-synced
+PASS io.duplicate-refund-needs-sync
+PASS io.duplicate-refund-retry-synced
+PASS corrupt.acknowledged-settle
+PASS corrupt.acknowledged-tail-audit (exit 5, unchanged journal)
+PASS corrupt.acknowledged-tail-refund (exit 5, unchanged journal)
+PASS corrupt.acknowledged-tail-show (exit 5, unchanged journal)
+PASS corrupt.signed-tail-bad-hash (exit 5, unchanged journal)
+PASS corrupt.original-settlement-preserved
+PASS usage.fused-name-arguments (exit 2, unchanged journal)
+PASS usage.fused-command-argument (exit 2, unchanged journal)
+PASS usage.fused-role-arguments (exit 2, unchanged journal)
+PASS phase.reserve
+PASS phase.reserve-open-retry
+PASS phase.reserve-after-settle (exit 10, unchanged journal)
+PASS phase.reserve-after-refund (exit 10, unchanged journal)
+crash: n 200 killed 200 (durable-before-kill 0, not-yet-durable 200) completed-before-kill 0 journal-identical-to-control no
+crash: audit ok records 202 head 8c781d7f07569f3b82b297f9d3a553a6b839615b6d82bed479d56ad9d444a462 accounts 3 jobs 100 open 0 settled 100 refunded 0 prefunded 1000000 balances 1000000 escrow 0
+PASS crash.kill9-200 (audit after every kill, no double settle, balances equal control)
+capacity-source 8e16f25dd7be21d9dea94252b4ad0ab3b30ac107e4445ed81224d29982e1aadd KCAP=10
+capacity-bin 71f18b249c8503b2acec91711eb1b111eb7c9d42f4a56e1dab07e5a6ee0359f5
+PASS capacity.prefund
+PASS capacity.reserve-settle
+PASS capacity.reserve-refund
+PASS capacity.fill-p2
+PASS capacity.fill-p3
+PASS capacity.fill-p4
+PASS capacity.fill-p5
+PASS capacity.new-prefund-refused (exit 14, unchanged journal)
+PASS capacity.new-reserve-refused (exit 14, unchanged journal)
+PASS capacity.settle
+PASS capacity.refund
+PASS capacity.settle-repeat (exit 0, unchanged journal)
+PASS capacity.refund-repeat (exit 0, unchanged journal)
+PASS capacity.provider
+PASS capacity.verifier
+PASS capacity.audit-closed
+PASS capacity.partial-prefund
+PASS capacity.partial-fill-p2
+PASS capacity.partial-fill-p3
+PASS capacity.partial-fill-p4
+PASS capacity.partial-fill-p5
+PASS capacity.partial-fill-p6
+PASS capacity.partial-fill-p7
+PASS capacity.partial-fill-p8
+PASS capacity.partial-reserve-refused (exit 14, unchanged journal)
+PASS capacity.last-slot-prefund
+PASS capacity.partial-full-prefund-refused (exit 14, unchanged journal)
+SUITE PASS
+PASS mutant no-fsync killed (4 failing: fsync.before-ack io.failed-sync-rollback-1 io.failed-sync-rollback-2 io.retry-writes-and-syncs )
+PASS mutant no-lock killed (1 failing: lock.blocks-while-held )
+PASS mutant no-exactly-once killed (19 failing: oracle.zero-replay once.same-receipt once.other-receipt once.same-receipt-other-split once.refund-after-settle once.journal-unchanged concurrent.settle-distinct concurrent.settle-same auth.lost-response-retry auth.honest-provider auth.changed-evidence-conflicts-even-when-signed io.duplicate-settle-retry-synced io.duplicate-refund-needs-sync io.duplicate-refund-retry-synced capacity.settle-repeat capacity.refund-repeat capacity.provider capacity.verifier capacity.audit-closed )
+PASS mutant no-hash-chain killed (1 failing: corrupt.signed-tail-bad-hash )
+PASS mutant no-conservation killed (2 failing: conserve.payout-over-escrow conserve.refused-for-every-command )
+PASS mutant no-escrow-rule killed (8 failing: oracle.change-mismatch oracle.settle oracle.zero-replay oracle.requester oracle.provider oracle.verifier oracle.observer oracle.audit )
+PASS mutant no-torn-recovery killed (2 failing: torn.unterminated torn.cut-last-record )
+PASS mutant no-issuer-signature killed (5 failing: auth.wrong-issuer-key auth.changed-amount auth.changed-quote auth.unauthorized-settle auth.wrong-key-replay-last )
+PASS mutant no-verifier-signature killed (2 failing: auth.wrong-verifier-key auth.issuer-is-not-verifier )
+PASS mutant no-owner-pins killed (1 failing: auth.account-spoof )
+PASS mutant capacity-lockup killed (13 failing: capacity.fill-p3 capacity.fill-p4 capacity.fill-p5 capacity.settle capacity.refund capacity.settle-repeat capacity.refund-repeat capacity.provider capacity.verifier capacity.audit-closed capacity.partial-fill-p7 capacity.partial-fill-p8 capacity.last-slot-prefund )
+PASS mutant no-slot-preflight killed (10 failing: capacity.new-prefund-refused capacity.settle capacity.refund capacity.settle-repeat capacity.refund-repeat capacity.provider capacity.verifier capacity.audit-closed capacity.partial-reserve-refused capacity.last-slot-prefund )
+PASS mutant no-sync-rollback killed (3 failing: io.failed-sync-rollback-1 io.failed-sync-rollback-2 io.retry-writes-and-syncs )
+PASS mutant no-duplicate-sync killed (8 failing: io.duplicate-prefund-needs-sync io.duplicate-prefund-retry-synced io.duplicate-reserve-needs-sync io.duplicate-reserve-retry-synced io.duplicate-settle-needs-sync io.duplicate-settle-retry-synced io.duplicate-refund-needs-sync io.duplicate-refund-retry-synced )
+PASS mutant terminated-tail-recovery killed (6 failing: corrupt.terminated-bad-hash corrupt.line-deleted corrupt.acknowledged-tail-audit corrupt.acknowledged-tail-refund corrupt.acknowledged-tail-show corrupt.signed-tail-bad-hash )
+PASS mutant argv-whitespace killed (3 failing: usage.fused-name-arguments usage.fused-command-argument usage.fused-role-arguments )
+PASS mutant reserve-closed-phase killed (2 failing: phase.reserve-after-settle phase.reserve-after-refund )
+TUR_LEDGER gate: PASS

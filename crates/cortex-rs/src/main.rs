@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 fn default_db_path() -> PathBuf {
     let home = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
@@ -149,18 +164,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/cortex/v2/context", post(compile_context_handler))
         .layer(middleware::from_fn(auth_middleware));
 
+    // Loopback origins only by default. A deployment that serves the cockpit on
+    // another address lists it in CORTEX_EXTRA_ORIGINS (comma-separated).
+    let mut origins: Vec<axum::http::HeaderValue> = vec![
+        "http://127.0.0.1:18095".parse().unwrap(),
+        "http://localhost:18095".parse().unwrap(),
+    ];
+    if let Ok(extra) = std::env::var("CORTEX_EXTRA_ORIGINS") {
+        for o in extra.split(',').map(str::trim).filter(|o| !o.is_empty()) {
+            match o.parse() {
+                Ok(v) => origins.push(v),
+                Err(_) => tracing::warn!("ignoring invalid CORTEX_EXTRA_ORIGINS entry {o:?}"),
+            }
+        }
+    }
+
     let app = Router::new()
         .route("/health", get(health_handler))
         .route("/status", get(health_handler))
         .merge(protected_routes)
         .layer(
             CorsLayer::new()
-                .allow_origin([
-                    "http://127.0.0.1:18095".parse().unwrap(),
-                    "http://localhost:18095".parse().unwrap(),
-                    "http://192.168.1.108:18095".parse().unwrap(),
-                    "http://100.116.106.93:18095".parse().unwrap(),
-                ])
+                .allow_origin(origins)
                 .allow_methods(Any)
                 .allow_headers(Any),
         )

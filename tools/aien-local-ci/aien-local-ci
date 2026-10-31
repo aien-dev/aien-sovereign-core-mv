@@ -1,0 +1,94 @@
+#!/bin/bash
+# aien-local-ci: operator front door for the Spark's local verification pipeline (ADR 0033, 2026-10-11).
+# Wraps the release aien-test binary with the machine's standard locations. Plain subcommands:
+#   aien-local-ci status                      what the worker is doing, pending triggers, newest bundles
+#   aien-local-ci start [--github] [--lane L --repos a,b]  start a worker loop detached (trigger files; --github adds
+#                                             PR polling + status posting); lane main (default) = aienux, synapse, interplane
+#                                             other lanes: worker-L.pid, worker-L.log, need --github --repos
+#   aien-local-ci stop [--lane L]             stop one worker loop (default lane main)
+#   aien-local-ci trigger <repo> <sha>        ask the worker to verify one head
+#   aien-local-ci verify <repo> <sha> [--base REF]   independent check of a bundle (exit 0 only on READY)
+#   aien-local-ci once <repo> <sha>           run one head in the foreground (sandbox user)
+#   aien-local-ci plan [--base REF]           which gates a change selects (run inside a checkout)
+#   aien-local-ci health                      sandbox + Forgejo health (INFRA health.sh)
+#   aien-local-ci log [N]                     last N journal lines (default 20)
+# Source: aien-sovereign-core tools/aien-local-ci/aien-local-ci, installed as ~/.local/bin/aien-local-ci.
+# Everything runs as the operator; untrusted code only ever runs through /usr/local/sbin/aien-run-exec as aien-run.
+set -euo pipefail
+BIN=${AIEN_TEST_BIN:-$HOME/workspace/pipeline/target-sc/release/aien-test}
+CLONES=${AIEN_CLONES:-$HOME/workspace/pipeline/clones}
+STATE=${AIEN_STATE:-$HOME/.local/state/aien-local-ci}
+# main lane repos: the ones no other lane covers (2026-10-18: overlapping lanes polled the same repos twice, about 59
+# GitHub requests a minute in all). pipeline.sh and rebase-train.sh keep their own full lists.
+REPOS=${AIEN_REPOS:-aienux,synapse,interplane}
+POLL=${AIEN_POLL:-60}
+mkdir -p "$STATE/trigger"
+cmd=${1:-status}; shift || true
+# Worker lanes. One aien-test worker is one serial queue: a 45 to 60 min aienux, sc or omega job starved every other
+# repo of bundles (2026-10-18). So the machine runs named lanes, each its own worker with its own repo list, pidfile and
+# log: main (worker.pid, worker.log, AIEN_REPOS) and any other NAME (worker-NAME.pid, worker-NAME.log, --repos LIST).
+# Keep the lists apart (core and big both hold sovereign-core on purpose; the per-target lock serialises a double run).
+lane=main github=0 lane_repos="" args=()
+while [[ $cmd == start || $cmd == stop ]] && [[ $# -gt 0 ]]; do
+  case "$1" in
+    --lane) lane=${2:?lane name}; shift 2 ;;
+    --repos) lane_repos=${2:?repo list}; shift 2 ;;
+    --github) github=1; shift ;;
+    *) args+=("$1"); shift ;;
+  esac
+done
+if [[ $cmd == start || $cmd == stop ]]; then
+  set -- ${args[@]+"${args[@]}"}
+fi
+[[ $lane =~ ^[a-z][a-z0-9-]{0,30}$ ]] || { echo "bad lane name '$lane'" >&2; exit 2; }
+[[ -z $lane_repos || $lane_repos =~ ^[A-Za-z0-9._-]+(,[A-Za-z0-9._-]+)*$ ]] || { echo "bad --repos '$lane_repos'" >&2; exit 2; }
+if [[ $lane == main ]]; then PIDFILE=$STATE/worker.pid LOG=$STATE/worker.log LANE_REPOS=${lane_repos:-$REPOS}
+else PIDFILE=$STATE/worker-$lane.pid LOG=$STATE/worker-$lane.log LANE_REPOS=$lane_repos; fi
+
+# lane_pid: the pid of this lane's running worker. The pidfile first; when its pid is gone, adopt a running
+# `aien-test worker` of this user whose --state-dir and --repos equal this lane's (exact argv match from
+# /proc/<pid>/cmdline, never a pattern), and rewrite the pidfile, so a lane started by hand is not started twice.
+lane_pid() {
+  local p a i sd rp w once
+  if [[ -f $PIDFILE ]]; then p=$(cat "$PIDFILE"); [[ $p =~ ^[0-9]+$ ]] && kill -0 "$p" 2>/dev/null && { echo "$p"; return 0; }; fi
+  [[ -n $LANE_REPOS && ( $github == 1 || $cmd == stop ) ]] || return 1
+  for p in $(pgrep -u "$(id -u)" -x aien-test || true); do
+    mapfile -d '' a < "/proc/$p/cmdline" 2>/dev/null || continue
+    sd="" rp="" w=0 once=0
+    for ((i = 0; i < ${#a[@]}; i++)); do
+      case "${a[i]}" in
+        worker) w=1 ;; --once) once=1 ;;
+        --state-dir) sd=${a[i+1]:-} ;; --repos) rp=${a[i+1]:-} ;;
+      esac
+    done
+    if [[ $w == 1 && $once == 0 && $sd == "$STATE" && $rp == "$LANE_REPOS" ]]; then
+      echo "$p" > "$PIDFILE"; echo "$p"; return 0
+    fi
+  done
+  return 1
+}
+case "$cmd" in
+  status) exec "$BIN" status --state-dir "$STATE" ;;
+  start)
+    if p=$(lane_pid); then echo "worker ($lane) already running (pid $p)"; exit 0; fi
+    [[ $lane == main || $github == 1 ]] || { echo "lane $lane needs --github" >&2; exit 2; }
+    [[ -n $LANE_REPOS ]] || { echo "lane $lane needs --repos LIST" >&2; exit 2; }
+    extra=(); [[ $github == 1 ]] && extra=(--github --repos "$LANE_REPOS")
+    setsid nohup "$BIN" worker --poll "$POLL" --state-dir "$STATE" --clones "$CLONES" --sandbox user "${extra[@]}" >>"$LOG" 2>&1 < /dev/null &
+    echo $! > "$PIDFILE"; echo "worker ($lane) started (pid $!, log $LOG, github=${extra[0]:-off})" ;;
+  stop)
+    if p=$(lane_pid); then kill "$p"; echo "worker ($lane) stopped (pid $p)"; else echo "worker ($lane) not running"; fi
+    rm -f "$PIDFILE" ;;
+  trigger)
+    repo=${1:?repo}; sha=$(git -C "$CLONES/${1}" rev-parse --verify "${2:?sha}^{commit}" 2>/dev/null || { echo "unknown commit $2 in $CLONES/$1 (run: git -C $CLONES/$1 fetch --all)"; exit 2; })
+    set -- "$repo" "$sha"
+    repo=${1:?repo}; sha=${2:?sha}
+    printf 'manual 0000000000000000000000000000000000000000 %s %s\n' "$sha" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$STATE/trigger/$repo.$sha"
+    echo "trigger written: $STATE/trigger/$repo.$sha" ;;
+  verify) repo=${1:?repo}; sha=$(git -C "$CLONES/$repo" rev-parse --verify "${2:?sha}^{commit}") || exit 2; shift 2; cd "$CLONES/$repo" && exec "$BIN" verify "$sha" --repo "github.com/aien-dev/$repo" --state-dir "$STATE" "$@" ;;
+  once) repo=${1:?repo}; sha=$(git -C "$CLONES/$repo" fetch -q --all 2>/dev/null; git -C "$CLONES/$repo" rev-parse --verify "${2:?sha}^{commit}") || exit 2; shift 2; exec "$BIN" worker --once "$repo" "$sha" --state-dir "$STATE" --clones "$CLONES" --sandbox user "$@" ;;
+  plan) exec "$BIN" plan "$@" ;;
+  health) exec bash "$CLONES/aien-sovereign-core/tools/aien-local-ci/health.sh" "$@" ;;
+  log) tail -n "${1:-20}" "$STATE/journal.jsonl" 2>/dev/null || echo "no journal yet" ;;
+  *) sed -n '2,15p' "$0"; exit 2 ;;
+esac

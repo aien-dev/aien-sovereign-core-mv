@@ -1,0 +1,16 @@
+{
+  "at": "2026-10-22T03:18:11Z",
+  "label": "live-19173f9e-1022T0317Z",
+  "alone_port": "18091",
+  "batch_port": "18091",
+  "prompts": 32,
+  "identical": 32,
+  "differ": 0,
+  "differ_idx": "",
+  "turn2_identical": true,
+  "prompt0_alone_eq_golden": true,
+  "together_tokens": 798,
+  "together_wall_s": "19.550275219",
+  "stagger_ms": "250",
+  "verdict": "PASS"
+}

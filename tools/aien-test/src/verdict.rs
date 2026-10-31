@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! Verdict set and derivation (ADR 0028 Decision 5). A test program only
 //! reports observations; the verdict is derived here from the manifest's
 //! expectations and facts the runner measured. Only the last row can yield
@@ -181,6 +196,9 @@ pub struct Facts {
     /// The operator started this run by hand (`--operator`). It is the only
     /// thing that lets a `requires: operator` gate run (ADR 0033 Decision 2).
     pub operator: bool,
+    /// The manifest's `prepare` step ran and did not exit 0 (or timed out),
+    /// so `run` never started.
+    pub prepare_failed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -283,7 +301,9 @@ pub fn derive(m: &Manifest, f: &Facts) -> Derived {
         .iter()
         .map(|r| (r.text.clone(), eval_rule(r, &f.observations)))
         .collect();
-    let (verdict, reason) = if f.timed_out {
+    let (verdict, reason) = if f.prepare_failed {
+        (Verdict::Fail, "prepare_failed".to_string())
+    } else if f.timed_out {
         (Verdict::Fail, "timeout".to_string())
     } else if let Some(r) = self_not_run(m, f) {
         (Verdict::NotRun, r)
@@ -342,6 +362,7 @@ mod tests {
             tree_changed_after: false,
             head_moved: false,
             operator: false,
+            prepare_failed: false,
         }
     }
 
@@ -458,6 +479,21 @@ mod tests {
         f.exit_status = None;
         let d = derive(&m(None), &f);
         assert_eq!((d.verdict, d.reason.as_str()), (Verdict::Fail, "timeout"));
+    }
+
+    #[test]
+    fn a_failed_prepare_fails_even_when_its_exit_matches() {
+        // The prepare exit is never compared with expects.exit: a gate that
+        // expects exit 1 must not pass because its build failed with 1.
+        let mo = m(Some(("  exit: 0\n", "  exit: 1\n")));
+        let mut f = good_facts();
+        f.prepare_failed = true;
+        f.exit_status = Some(1);
+        let d = derive(&mo, &f);
+        assert_eq!(
+            (d.verdict, d.reason.as_str()),
+            (Verdict::Fail, "prepare_failed")
+        );
     }
 
     #[test]

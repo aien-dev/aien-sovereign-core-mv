@@ -1,5 +1,22 @@
 #![allow(clippy::type_complexity, clippy::needless_range_loop)]
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 mod allen;
+mod approval;
+mod checkpoint;
 mod client;
 mod commands;
 pub mod compaction;
@@ -7,6 +24,7 @@ mod compose;
 mod context7;
 pub mod cortex;
 mod crumbs;
+mod fs_bind;
 pub mod goals;
 mod hive;
 pub mod hooks;
@@ -283,6 +301,10 @@ async fn main() {
             }
         }
     };
+    // sc#667: open the checkpoint store once the session id is known, before
+    // nesting, resume settlement, or any tool. A store that cannot open is
+    // reported inside start_checkpoints; the session still runs.
+    start_checkpoints(&platform.home_dir, &session_id);
 
     let client = ChatClient::new(None, None);
     let mut messages: Vec<Value> = Vec::new();
@@ -445,6 +467,9 @@ async fn main() {
                 let hook_registry = crate::hooks::HookRegistry::default_sovereign_registry();
                 let _ = hook_registry.run_pre_turn(&mut user_turn).await;
 
+                // sc#667: a turn boundary before the message is recorded, so later
+                // agent writes belong to this turn and `/rollback` can undo them.
+                crate::checkpoint::begin_turn();
                 if let Err(stop) =
                     journal.push(&mut messages, json!({"role": "user", "content": user_turn}))
                 {
@@ -453,7 +478,11 @@ async fn main() {
                 }
 
                 let report = compactor.compact_if_needed(&mut messages);
-                record_compaction(&report, &messages, &mut journal);
+                if let Err(stop) = record_compaction(&report, &messages, &mut journal) {
+                    println!("\n{}", stop.describe().red().bold());
+                    journal.stop(&stop);
+                    break;
+                }
 
                 // Multi-turn tool execution loop (sc#665: persist-before-act, one-shot recovery)
                 if let Some(stop) = run_model_steps(
@@ -469,13 +498,22 @@ async fn main() {
                 {
                     println!("\n{}", stop.describe().red().bold());
                     journal.stop(&stop);
+                    // The compacted transcript is only in memory. Another step
+                    // would act on a history the journal does not hold.
+                    if matches!(stop, turn_journal::TurnStop::CompactionUnrecorded(_)) {
+                        break;
+                    }
                 }
 
                 // sc#664: opt-in per-turn folding of one exchange
                 // (AIEN_MICRO_COMPACT=1). The operator's words are never folded.
                 if micro_compact {
                     let report = compactor.absorb_oldest_exchange(&mut messages);
-                    record_compaction(&report, &messages, &mut journal);
+                    if let Err(stop) = record_compaction(&report, &messages, &mut journal) {
+                        println!("\n{}", stop.describe().red().bold());
+                        journal.stop(&stop);
+                        break;
+                    }
                 }
 
                 // The end of the turn: the journal snapshot is the record of this
@@ -514,6 +552,8 @@ async fn run_single_prompt(prompt: &str) {
     let platform = crate::platform::PlatformContext::detect();
     let sessions_dir = platform.home_dir.join("basecamp/sessions");
     let _ = fs::create_dir_all(&sessions_dir);
+    start_checkpoints(&platform.home_dir, &session_id);
+    crate::checkpoint::begin_turn();
 
     // Mandatory Nesting Ritual: Required at startup across all modes
     let nesting = perform_nesting_ritual(&session_id, true).await;
@@ -640,7 +680,9 @@ async fn run_model_steps(
                                 .dimmed()
                         );
                         let report = c.compact_if_needed(messages);
-                        record_compaction(&report, messages, journal);
+                        if let Err(stop) = record_compaction(&report, messages, journal) {
+                            return Some(stop);
+                        }
                         continue;
                     }
                     None => {
@@ -700,7 +742,9 @@ async fn run_model_steps(
 
         if let Some(c) = compactor {
             let report = c.compact_if_needed(messages);
-            record_compaction(&report, messages, journal);
+            if let Err(stop) = record_compaction(&report, messages, journal) {
+                return Some(stop);
+            }
         }
 
         let tool_calls = extract_tool_calls(&assistant_resp);
@@ -714,6 +758,48 @@ async fn run_model_steps(
         }
     }
     None
+}
+
+/// What one autonomous assistant reply did, after it was recorded.
+#[derive(Debug)]
+enum AutonomousStep {
+    /// The reply had no tool call.
+    StoppedTalking,
+    /// Tools ran. `milestone_done` is the goal tool's signal.
+    Acted { milestone_done: bool },
+}
+
+/// One autonomous assistant reply under persist-before-act.
+///
+/// The reply is on disk before any tool runs. Each tool request is on disk
+/// before that tool runs. A failed journal write returns `Err` and does not
+/// call `dispatch`.
+fn apply_autonomous_reply<F>(
+    journal: &mut turn_journal::Journal,
+    messages: &mut Vec<Value>,
+    assistant_resp: &str,
+    dispatch: F,
+) -> Result<AutonomousStep, turn_journal::TurnStop>
+where
+    F: FnMut(&str, &Value) -> Value,
+{
+    journal.push(
+        messages,
+        json!({"role": "assistant", "content": assistant_resp}),
+    )?;
+    let tool_calls = extract_tool_calls(assistant_resp);
+    if tool_calls.is_empty() {
+        return Ok(AutonomousStep::StoppedTalking);
+    }
+    let milestone_done = tool_calls.iter().any(|(name, args)| {
+        name == "goal"
+            && matches!(
+                args.get("action").and_then(Value::as_str),
+                Some("milestone_done") | Some("done")
+            )
+    });
+    turn_journal::run_tool_calls(journal, messages, tool_calls, dispatch)?;
+    Ok(AutonomousStep::Acted { milestone_done })
 }
 
 /// sc#666: one reply's tool calls as a planned batch. Reads of the same or
@@ -803,6 +889,36 @@ pub async fn run_autonomous_goal(goal_id: &str) {
     );
 
     let session_id = format!("auto-goal-{}", chrono::Utc::now().timestamp());
+    let platform = crate::platform::PlatformContext::detect();
+    let sessions_dir = platform.home_dir.join("basecamp/sessions");
+    let _ = fs::create_dir_all(&sessions_dir);
+    // Same persist-before-act rule as the chat loop: no tool runs unless its
+    // request is on disk, and a failed write ends the goal.
+    let mut journal = match turn_journal::Journal::create(
+        &sessions_dir.join(format!("{}.journal.jsonl", session_id)),
+    ) {
+        Ok(j) => j,
+        Err(e) => {
+            eprintln!(
+                "{}",
+                format!(
+                    "Cannot start the session journal, so no tool could run safely: {}",
+                    e
+                )
+                .red()
+                .bold()
+            );
+            return;
+        }
+    };
+    println!(
+        "{}",
+        format!(
+            "Session {} (continue it later with: aien-cli --resume {})",
+            session_id, session_id
+        )
+        .dimmed()
+    );
     let nesting = perform_nesting_ritual(&session_id, true).await;
     let client = ChatClient::new(None, None);
 
@@ -839,18 +955,23 @@ pub async fn run_autonomous_goal(goal_id: &str) {
         let hook_registry = crate::hooks::HookRegistry::default_sovereign_registry();
         let _ = hook_registry.run_pre_turn(&mut task_directive).await;
 
-        let mut messages = vec![
+        let mut messages = Vec::new();
+        let opening = [
             json!({"role": "system", "content": get_system_prompt()}),
-            json!({
-                "role": "user",
-                "content": task_directive
-            }),
+            json!({"role": "user", "content": task_directive}),
         ];
+        for message in opening {
+            if let Err(stop) = journal.push(&mut messages, message) {
+                eprintln!("{}", stop.describe().red().bold());
+                journal.stop(&stop);
+                return;
+            }
+        }
 
         let mut max_tool_steps = 15;
         let mut milestone_done = false;
 
-        while max_tool_steps > 0 {
+        while max_tool_steps > 0 && !milestone_done {
             max_tool_steps -= 1;
             print!(
                 "\n{}",
@@ -865,32 +986,21 @@ pub async fn run_autonomous_goal(goal_id: &str) {
             };
 
             hook_registry.run_post_turn(&mut assistant_resp).await;
-            messages.push(json!({"role": "assistant", "content": assistant_resp.clone()}));
-
-            let tool_calls = extract_tool_calls(&assistant_resp);
-            if !tool_calls.is_empty() {
-                for (tool_name, tool_args) in tool_calls {
-                    if tool_name == "goal" {
-                        let action = tool_args
-                            .get("action")
-                            .and_then(Value::as_str)
-                            .unwrap_or("");
-                        if action == "milestone_done" || action == "done" {
-                            milestone_done = true;
-                        }
-                    }
-                    let tool_result = dispatch_tool(&tool_name, &tool_args);
-                    let result_str = serde_json::to_string(&tool_result).unwrap_or_default();
-                    messages.push(json!({
-                        "role": "user",
-                        "content": format!("<tool_response name=\"{}\">\n{}\n</tool_response>", tool_name, result_str)
-                    }));
+            match apply_autonomous_reply(
+                &mut journal,
+                &mut messages,
+                &assistant_resp,
+                dispatch_tool,
+            ) {
+                Ok(AutonomousStep::StoppedTalking) => break,
+                Ok(AutonomousStep::Acted {
+                    milestone_done: done,
+                }) => milestone_done = done,
+                Err(stop) => {
+                    eprintln!("{}", stop.describe().red().bold());
+                    journal.stop(&stop);
+                    return;
                 }
-            } else {
-                break;
-            }
-            if milestone_done {
-                break;
             }
         }
 
@@ -920,23 +1030,24 @@ pub async fn run_autonomous_goal(goal_id: &str) {
 /// the new history in the session journal at once. The journal line is written
 /// whole or not at all, so a resumed session loads either the old history or
 /// the compacted one, never both the recap and the messages it replaced.
+///
+/// `Err(CompactionUnrecorded)` means the compacted transcript is only in
+/// memory. The caller stops the turn: the journal already holds the
+/// pre-compaction history, and that is what resume loads. A marker cannot
+/// stand in for the snapshot, because the write that failed is the one that
+/// would have stored the compacted transcript.
 fn record_compaction(
     report: &crate::compaction::CompactionReport,
     messages: &[Value],
     journal: &mut turn_journal::Journal,
-) {
+) -> Result<(), turn_journal::TurnStop> {
     report_compaction(report);
     if report.applied {
-        if let Err(e) = journal.snapshot(messages) {
-            eprintln!(
-                "{}",
-                format!(
-                    "warning: the compacted history could not be recorded ({e}); a resumed session would load the history from before this compaction"
-                )
-                .yellow()
-            );
-        }
+        journal
+            .snapshot(messages)
+            .map_err(|e| turn_journal::TurnStop::CompactionUnrecorded(e.to_string()))?;
     }
+    Ok(())
 }
 
 fn report_compaction(report: &crate::compaction::CompactionReport) {
@@ -978,6 +1089,19 @@ fn report_compaction(report: &crate::compaction::CompactionReport) {
             .yellow()
             .dimmed()
         ),
+    }
+}
+
+/// sc#667: record the agent's file writes so `/rollback` can undo them
+/// without touching the operator's own edits. A store that cannot open is
+/// reported; the session still runs, with writes refused only if a later
+/// snapshot fails.
+fn start_checkpoints(home: &std::path::Path, session_id: &str) {
+    if let Err(err) = crate::checkpoint::start_session(home, session_id) {
+        eprintln!(
+            "{}",
+            format!("Checkpoints off for this session: {}", err).yellow()
+        );
     }
 }
 
@@ -1034,7 +1158,7 @@ mod compaction_journal_tests {
         let report = compactor.compact_if_needed(&mut messages);
         assert!(report.applied, "{report:?}");
         assert!(messages.len() < before);
-        record_compaction(&report, &messages, &mut journal);
+        record_compaction(&report, &messages, &mut journal).unwrap();
         // Killed here: nothing else is written.
         drop(journal);
 
@@ -1056,6 +1180,200 @@ mod compaction_journal_tests {
                 "ask {k} lost"
             );
         }
+    }
+
+    /// The snapshot after compaction is the compacted transcript. If it does
+    /// not land, the turn does not take another step, and resume still has the
+    /// history from before the compaction.
+    #[test]
+    fn a_failed_compaction_snapshot_stops_before_another_step() {
+        let d = tempfile::tempdir().unwrap();
+        let path = d.path().join("s.journal.jsonl");
+        let mut journal = turn_journal::Journal::create(&path).unwrap();
+        let compactor = ContextCompactor::new(2000, 1000, 500)
+            .with_store(CompactionStore::new(d.path().join("compaction")));
+        let mut messages = Vec::new();
+        for m in [
+            json!({"role": "system", "content": "sys"}),
+            user("grounding"),
+        ] {
+            journal.push(&mut messages, m).unwrap();
+        }
+        for k in 0..4 {
+            journal
+                .push(&mut messages, user(&format!("ask {k}")))
+                .unwrap();
+            journal
+                .push(
+                    &mut messages,
+                    json!({"role": "assistant", "content": "<tool_call>\n{\"name\": \"view_file\", \"arguments\": {}}\n</tool_call>"}),
+                )
+                .unwrap();
+            let big = format!(
+                "<tool_response name=\"view_file\">\n{}\n</tool_response>",
+                "Z".repeat(4000)
+            );
+            journal.push(&mut messages, user(&big)).unwrap();
+            journal
+                .push(
+                    &mut messages,
+                    json!({"role": "assistant", "content": format!("answer {k}")}),
+                )
+                .unwrap();
+        }
+        let durable = messages.clone();
+        let report = compactor.compact_if_needed(&mut messages);
+        assert!(report.applied, "{report:?}");
+        assert_ne!(messages, durable);
+        journal.accept_only_n_writes_for_test(0);
+
+        let mut stepped = false;
+        match record_compaction(&report, &messages, &mut journal) {
+            Ok(()) => stepped = true,
+            Err(stop) => {
+                assert!(matches!(
+                    stop,
+                    turn_journal::TurnStop::CompactionUnrecorded(_)
+                ));
+                assert!(stop.describe().contains("compaction-unrecorded"));
+                journal.stop(&stop);
+            }
+        }
+        assert!(
+            !stepped,
+            "the turn continued after the compaction snapshot failed"
+        );
+        drop(journal);
+
+        let (_j, rep) = turn_journal::Journal::resume(&path).unwrap();
+        assert_eq!(
+            rep.messages, durable,
+            "resume loads the history from before this compaction"
+        );
+        assert!(
+            !rep.messages.iter().any(|m| {
+                m["content"]
+                    .as_str()
+                    .is_some_and(|c| c.starts_with("<context_compaction_recap"))
+            }),
+            "the unrecorded recap must not be in the journal"
+        );
+    }
+
+    #[test]
+    fn a_skipped_compaction_does_not_stop_the_turn() {
+        let d = tempfile::tempdir().unwrap();
+        let path = d.path().join("s.journal.jsonl");
+        let mut journal = turn_journal::Journal::create(&path).unwrap();
+        journal.accept_only_n_writes_for_test(0);
+        let report = crate::compaction::CompactionReport {
+            applied: false,
+            skipped: Some(crate::compaction::SkipReason::NotNeeded),
+            stats: None,
+        };
+        assert!(record_compaction(&report, &[], &mut journal).is_ok());
+    }
+}
+
+#[cfg(test)]
+mod autonomous_journal_tests {
+    use super::*;
+
+    fn reply_with(name: &str, args: serde_json::Value) -> String {
+        format!(
+            "<tool_call>\n{{\"name\": \"{name}\", \"arguments\": {args}}}\n</tool_call>",
+            args = args
+        )
+    }
+
+    /// The one allowed journal write records the assistant reply. The tool
+    /// request is the write that fails, and dispatch does not run.
+    #[test]
+    fn journal_write_failure_stops_an_autonomous_turn_before_dispatch() {
+        let d = tempfile::tempdir().unwrap();
+        let path = d.path().join("s.journal.jsonl");
+        let mut journal = turn_journal::Journal::create(&path).unwrap();
+        let mut messages = Vec::new();
+        journal
+            .push(
+                &mut messages,
+                json!({"role": "user", "content": "do the milestone"}),
+            )
+            .unwrap();
+        journal.accept_only_n_writes_for_test(1);
+        let assistant = reply_with("run_command", json!({"command": "rm x"}));
+        let mut ran = false;
+        let result = apply_autonomous_reply(&mut journal, &mut messages, &assistant, |_, _| {
+            ran = true;
+            json!({})
+        });
+        assert!(
+            matches!(result, Err(turn_journal::TurnStop::PersistFailed(_))),
+            "{result:?}"
+        );
+        assert!(!ran, "dispatch ran after the journal write failed");
+        assert!(
+            !messages.iter().any(|m| m["content"]
+                .as_str()
+                .unwrap_or("")
+                .contains("<tool_response")),
+            "a tool result was added after the write failed"
+        );
+        drop(journal);
+        let rep = turn_journal::replay(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert!(rep.in_doubt.is_empty(), "the tool request was not recorded");
+        assert_eq!(rep.messages.len(), 2, "user message and assistant reply");
+        assert!(rep.messages[1]["content"]
+            .as_str()
+            .unwrap()
+            .contains("run_command"));
+    }
+
+    #[test]
+    fn an_autonomous_tool_request_is_on_disk_before_it_runs() {
+        let d = tempfile::tempdir().unwrap();
+        let path = d.path().join("s.journal.jsonl");
+        let mut journal = turn_journal::Journal::create(&path).unwrap();
+        let mut messages = Vec::new();
+        journal
+            .push(
+                &mut messages,
+                json!({"role": "user", "content": "milestone"}),
+            )
+            .unwrap();
+        let assistant = reply_with(
+            "goal",
+            json!({"action": "milestone_done", "id": "g", "milestone_id": 1}),
+        );
+        let path_for_dispatch = path.clone();
+        let step = apply_autonomous_reply(&mut journal, &mut messages, &assistant, |name, args| {
+            let rep = turn_journal::replay(&std::fs::read_to_string(&path_for_dispatch).unwrap())
+                .unwrap();
+            assert_eq!(
+                rep.in_doubt.len(),
+                1,
+                "the request must be durable before dispatch"
+            );
+            assert_eq!(rep.in_doubt[0].name, name);
+            assert_eq!(rep.in_doubt[0].effect, turn_journal::Effect::Effectful);
+            assert_eq!(args["action"], "milestone_done");
+            json!({"ok": true})
+        })
+        .unwrap();
+        assert!(matches!(
+            step,
+            AutonomousStep::Acted {
+                milestone_done: true
+            }
+        ));
+        assert!(messages.iter().any(|m| {
+            m["content"]
+                .as_str()
+                .is_some_and(|c| c.contains("<tool_response name=\"goal\">"))
+        }));
+        drop(journal);
+        let rep = turn_journal::replay(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert!(rep.in_doubt.is_empty());
     }
 }
 

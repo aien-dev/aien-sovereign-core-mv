@@ -1,13 +1,13 @@
 ## Issue-first delivery
 
-For each new feature, substantial fix, research experiment or cross-repo initiative, open or reuse a GitHub tracking issue **before implementation**, with executive summary, ownership, dependencies, acceptance gates and evidence expectations. Use the [AIEN issue-first delivery protocol](https://github.com/aien-spark/aien-architecture/blob/main/docs/process/ISSUE_FIRST_DELIVERY.md). PRs reference the issue and report executed versus not-run checks; record merged commits and qualification in the issue. This tracks the work without replacing Honeycomb task claims, required worktrees/PRs, existing preflight tests or the authoritative master plan.
+For each new feature, substantial fix, research experiment or cross-repo initiative, open or reuse a GitHub tracking issue **before implementation**, with executive summary, ownership, dependencies, acceptance gates and evidence expectations. Use the [AIEN issue-first delivery protocol](https://github.com/aien-dev/aien-architecture-mv/blob/main/docs/process/ISSUE_FIRST_DELIVERY.md). PRs reference the issue and report executed versus not-run checks; record merged commits and qualification in the issue. This tracks the work without replacing Honeycomb task claims, required worktrees/PRs, existing preflight tests or the authoritative master plan.
 
 # Planning authority
 
 Before using any project roadmap or architecture plan, read:
 
-- https://github.com/aien-spark/aien-architecture/blob/main/PLAN_AUTHORITY.md
-- https://github.com/aien-spark/aien-architecture/blob/main/CURRENT_EXECUTION_PLAN.md
+- https://github.com/aien-dev/aien-architecture-mv/blob/main/PLAN_AUTHORITY.md
+- https://github.com/aien-dev/aien-architecture-mv/blob/main/CURRENT_EXECUTION_PLAN.md
 
 This repository owns runtime implementation details, not the whole-system master plan. Do not create a competing master/final/complete AIEN plan here.
 
@@ -29,7 +29,7 @@ All communication, documentation, commits, and agent prompts must strictly adher
 ---
 
 ## 2. Mandatory Branching & Worktree Discipline
-To protect codebase integrity in an agent-only development environment:
+To protect codebase integrity under Human-Directed Agentic Engineering (HDAE), humans set the goals, constraints, acceptance criteria, and stopping points while agents implement and check changes. Human review retains responsibility for claims, acceptance, and releases. See the [method and Kurtzer citation in the README](README.md#human-directed-agentic-engineering).
 - **Zero Edits to Main**: Every single modification, feature, bugfix, or self-improvement edit must be performed in a dedicated descriptive branch (`feat/<name>`, `fix/<name>`, `perf/<name>`) or isolated git worktree (`~/workspace/hive-worktrees/<task_id>`).
 - **Autonomous Public PR Creation**: Never commit directly to `main`. Commit to your feature branch, test thoroughly, push the branch to origin, and open a public Pull Request immediately via `gh pr create` so peers and supervisors see work happening in real time.
 - **Verify Before Merge**: No branch is merged into `main` without running the automated preflight verification harness (`bash scripts/agent-preflight.sh`).
@@ -52,23 +52,23 @@ Autonomous agents collaborate stigmergically across concentric hexagonal comb ri
 ```
 
 ### Gateway Endpoints (Port 18095)
-- **Hub URL**: `http://192.168.1.108:18095`
+- **Hub URL**: `$AIEN_HUB_URL` (the operator's private forge hub, port 18095; not public)
 - **List Open Tasks**: `GET /api/hive/forge/tasks?status=open`
 - **Claim Task**:
   ```bash
-  curl -s -X POST http://192.168.1.108:18095/api/hive/forge/claim \
+  curl -s -X POST "$AIEN_HUB_URL"/api/hive/forge/claim \
     -H 'Content-Type: application/json' \
     -d '{"task_id": "task-xyz", "agent_id": "agent-pubkey-1", "ttl_secs": 600}'
   ```
 - **Renew Heartbeat**:
   ```bash
-  curl -s -X POST http://192.168.1.108:18095/api/hive/forge/heartbeat \
+  curl -s -X POST "$AIEN_HUB_URL"/api/hive/forge/heartbeat \
     -H 'Content-Type: application/json' \
     -d '{"task_id": "task-xyz", "agent_id": "agent-pubkey-1", "ttl_secs": 600}'
   ```
 - **Submit Task**:
   ```bash
-  curl -s -X POST http://192.168.1.108:18095/api/hive/forge/submit \
+  curl -s -X POST "$AIEN_HUB_URL"/api/hive/forge/submit \
     -H 'Content-Type: application/json' \
     -d '{"task_id": "task-xyz", "agent_id": "agent-pubkey-1", "branch": "feat/my-feature", "pr_url": "https://github.com/..."}'
   ```
@@ -117,7 +117,7 @@ bash scripts/agent-preflight.sh
 ## Certifications
 - Zero Plaintext Secrets: Hardware TPM vault only. No .env files on disk.
 - Sovereign Voice & Anti-Slop: Zero em dashes or en dashes present.
-- License: AGPL-3.0-or-later governs (see LICENSE). COVENANT.md states values only.
+- License: Apache-2.0 governs (see LICENSE). COVENANT.md states values only.
 ```
 
 ---

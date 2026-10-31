@@ -1,0 +1,9 @@
+host-only: emulation, oracle, budgets
+emulation vs oracle: abs 3.577e-08, scale 63.821
+codegen rows 1 warps  4 depth 8: 266 instructions, 60 registers (declared 64, register file 8192 of 65536)
+codegen rows 1 warps  8 depth 8: 234 instructions, 60 registers (declared 64, register file 16384 of 65536)
+codegen rows 1 warps 16 depth 8: 218 instructions, 60 registers (declared 64, register file 32768 of 65536)
+codegen rows 1 warps 32 depth 8: 210 instructions, 60 registers (declared 64, register file 65536 of 65536)
+codegen XBATCH 4 k 2048 warps 16 depth 8: 545 instructions, 88 registers (declared 96), shared 32768 bytes
+codegen XBATCH 8 k 2048 warps 16 depth 8: 981 instructions, 84 registers (declared 88, register file 45056 of 65536), shared 65536 bytes
+gpu_bf16_gemv_test: 196 checks, 0 failed: PASS

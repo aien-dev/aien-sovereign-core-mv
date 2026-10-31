@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! sovereign-core #665: persist-before-act for the `aien` chat loop.
 //!
 //! Mechanism after Hermes Agent (Nous Research, MIT, commit 5480918),
@@ -43,14 +58,55 @@ pub enum Effect {
     Effectful,
 }
 
-/// The tools the loop knows to be pure reads. Everything else, including any
-/// tool this list has never heard of, counts as effectful.
+/// Every name `dispatch_tool_with` accepts, and whether running it again could
+/// change the world a second time. Aliases share the arm they dispatch through:
+/// `list_directory` is the same read as `list_dir`. A name that is not here,
+/// including one the model invented, is effectful, so resume will not run it
+/// again. Adding a tool to the dispatcher without a row here fails
+/// `every_dispatched_tool_is_classified`.
+pub const TOOL_EFFECTS: &[(&str, Effect)] = &[
+    ("run_command", Effect::Effectful),
+    ("view_file", Effect::ReadOnly),
+    ("write_to_file", Effect::Effectful),
+    ("create_file", Effect::Effectful),
+    ("replace_file_content", Effect::Effectful),
+    ("edit_file", Effect::Effectful),
+    ("list_dir", Effect::ReadOnly),
+    ("list_directory", Effect::ReadOnly),
+    ("grep_search", Effect::ReadOnly),
+    ("search_directory", Effect::ReadOnly),
+    ("find_by_name", Effect::ReadOnly),
+    ("find_file", Effect::ReadOnly),
+    ("ask_question", Effect::Effectful),
+    ("create_dir", Effect::Effectful),
+    ("crumb", Effect::Effectful),
+    ("skill", Effect::Effectful),
+    ("skills", Effect::Effectful),
+    ("context7", Effect::Effectful),
+    ("goal", Effect::Effectful),
+    ("cortex", Effect::Effectful),
+    ("vault", Effect::Effectful),
+    ("walkthrough", Effect::Effectful),
+    ("hive", Effect::Effectful),
+    ("socratic", Effect::Effectful),
+    ("socratic_inquiry", Effect::Effectful),
+    ("adapter", Effect::Effectful),
+    ("model_adapter", Effect::Effectful),
+    ("model_adapters", Effect::Effectful),
+    ("sandbox", Effect::Effectful),
+    ("browser", Effect::Effectful),
+    ("invoke_subagent", Effect::Effectful),
+    ("subagent", Effect::Effectful),
+    ("subagents", Effect::Effectful),
+];
+
+/// Whether a tool may change the world a second time. See [`TOOL_EFFECTS`].
 pub fn effect_of(tool_name: &str) -> Effect {
-    match tool_name {
-        "view_file" | "list_dir" | "grep_search" | "search_directory" | "find_by_name"
-        | "find_file" => Effect::ReadOnly,
-        _ => Effect::Effectful,
-    }
+    TOOL_EFFECTS
+        .iter()
+        .find(|(name, _)| *name == tool_name)
+        .map(|(_, effect)| *effect)
+        .unwrap_or(Effect::Effectful)
 }
 
 /// A tool request as it was recorded before it ran.
@@ -84,6 +140,11 @@ pub enum Record {
 pub enum TurnStop {
     /// A message or tool request could not be written to disk, so nothing after it ran.
     PersistFailed(String),
+    /// Compaction changed the live transcript, and the snapshot of that
+    /// transcript never reached disk. Callers must not take another model or
+    /// tool step. Resume loads the pre-compaction history, which is already
+    /// in the journal.
+    CompactionUnrecorded(String),
     /// The recovery rules ran out (see `turn_recovery`).
     Recovery(&'static str),
 }
@@ -93,6 +154,9 @@ impl TurnStop {
         match self {
             TurnStop::PersistFailed(e) => format!(
                 "turn stopped (persist-failed): could not record the next step on disk ({e}); nothing after it was run"
+            ),
+            TurnStop::CompactionUnrecorded(e) => format!(
+                "turn stopped (compaction-unrecorded): the compacted history could not be recorded ({e}); nothing further was run on it. A resumed session loads the history from before this compaction"
             ),
             TurnStop::Recovery(reason) => format!("turn stopped ({reason})"),
         }
@@ -270,6 +334,9 @@ pub struct Journal {
     file: File,
     last: String,
     next_call: u64,
+    /// `Some(0)` makes the next append fail before it writes. Test builds only.
+    #[cfg(test)]
+    writes_left: Option<u32>,
 }
 
 impl Journal {
@@ -294,6 +361,8 @@ impl Journal {
             file,
             last: GENESIS.to_string(),
             next_call: 0,
+            #[cfg(test)]
+            writes_left: None,
         })
     }
 
@@ -319,6 +388,8 @@ impl Journal {
                 file,
                 last: rep.last_digest.clone(),
                 next_call: rep.next_call,
+                #[cfg(test)]
+                writes_left: None,
             },
             rep,
         ))
@@ -330,6 +401,10 @@ impl Journal {
 
     /// Appends one record and flushes it to disk before returning.
     pub fn append(&mut self, record: &Record) -> Result<(), JournalError> {
+        #[cfg(test)]
+        if self.writes_left == Some(0) {
+            return Err(JournalError::Io("journal write rejected by test".into()));
+        }
         let record_v = serde_json::to_value(record).map_err(|e| JournalError::Io(e.to_string()))?;
         let digest = digest_of(&self.last, &record_v);
         let line = json!({"v": 1, "prev": self.last, "digest": digest, "record": record_v});
@@ -340,7 +415,19 @@ impl Journal {
             .and_then(|_| self.file.sync_data())
             .map_err(|e| JournalError::Io(e.to_string()))?;
         self.last = digest;
+        #[cfg(test)]
+        if let Some(left) = self.writes_left {
+            self.writes_left = Some(left - 1);
+        }
         Ok(())
+    }
+
+    /// The next `n` appends succeed. The one after that fails before it writes.
+    /// `n == 0` fails the next append. Tests use this where a full disk would
+    /// stop a turn ahead of a tool.
+    #[cfg(test)]
+    pub fn accept_only_n_writes_for_test(&mut self, n: u32) {
+        self.writes_left = Some(n);
     }
 
     /// Records a message, then adds it to the conversation. The conversation
@@ -464,9 +551,123 @@ mod tests {
     fn effect_defaults_to_effectful_for_unknown_tools() {
         assert_eq!(effect_of("view_file"), Effect::ReadOnly);
         assert_eq!(effect_of("grep_search"), Effect::ReadOnly);
+        assert_eq!(effect_of("list_directory"), Effect::ReadOnly);
         assert_eq!(effect_of("run_command"), Effect::Effectful);
         assert_eq!(effect_of("write_to_file"), Effect::Effectful);
         assert_eq!(effect_of("some_new_tool"), Effect::Effectful);
+    }
+
+    /// Names on the tool-dispatch arms (`dispatch_tool_with`). Nested matches,
+    /// such as a subagent action, sit deeper than the eight-space tool arms
+    /// and are not tools.
+    fn tool_names_in_dispatch(src: &str) -> Result<Vec<String>, String> {
+        let marker = "let (res, success) = match name {";
+        let start = src.find(marker).ok_or("dispatch match not found")?;
+        let rest = &src[start + marker.len()..];
+        let end = rest
+            .find("\n        other =>")
+            .ok_or("dispatch fallback not found")?;
+        let mut names = Vec::new();
+        for line in rest[..end].lines() {
+            let Some(arrow) = line.find("=>") else {
+                continue;
+            };
+            let head = &line[..arrow];
+            let indent = head.len() - head.trim_start().len();
+            let trimmed = head.trim();
+            if indent != 8 || !trimmed.starts_with('"') {
+                continue;
+            }
+            for part in trimmed.split('|') {
+                let part = part.trim();
+                let name = part
+                    .strip_prefix('"')
+                    .and_then(|s| s.strip_suffix('"'))
+                    .ok_or_else(|| format!("unparsed tool arm: {line}"))?;
+                if name.is_empty() {
+                    return Err(format!("empty tool name: {line}"));
+                }
+                names.push(name.to_string());
+            }
+        }
+        if names.is_empty() {
+            return Err("no tool names parsed from dispatch_tool_with".into());
+        }
+        Ok(names)
+    }
+
+    #[test]
+    fn the_dispatch_parser_reports_a_tool_that_has_no_classification() {
+        let src = "fn f() {\n    let (res, success) = match name {\n        \"view_file\" => {}\n        \"brand_new_tool\" => {}\n                \"list\" => {}\n        other => {}\n    }\n";
+        let names = tool_names_in_dispatch(src).unwrap();
+        assert_eq!(
+            names,
+            vec!["view_file".to_string(), "brand_new_tool".to_string()]
+        );
+        assert!(
+            !TOOL_EFFECTS.iter().any(|(n, _)| *n == "brand_new_tool"),
+            "the fixture name must stay unclassified"
+        );
+    }
+
+    /// The read-only set is the pure reads in `tools.rs`. `list_directory` is
+    /// the alias of `list_dir` (same arm). Everything else the dispatcher
+    /// accepts is effectful, on purpose: resume must not run it again.
+    #[test]
+    fn every_dispatched_tool_is_classified() {
+        let dispatched = tool_names_in_dispatch(include_str!("tools.rs")).unwrap();
+        let mut from_dispatch = dispatched.clone();
+        from_dispatch.sort();
+        let mut unique = from_dispatch.clone();
+        unique.dedup();
+        assert_eq!(
+            from_dispatch, unique,
+            "duplicate name in dispatch_tool_with"
+        );
+
+        let mut classified: Vec<String> =
+            TOOL_EFFECTS.iter().map(|(n, _)| (*n).to_string()).collect();
+        let mut classified_unique = classified.clone();
+        classified_unique.sort();
+        classified_unique.dedup();
+        classified.sort();
+        assert_eq!(
+            classified, classified_unique,
+            "duplicate name in TOOL_EFFECTS"
+        );
+        assert_eq!(
+            from_dispatch, classified,
+            "a tool was added to dispatch_tool_with or TOOL_EFFECTS without the other"
+        );
+
+        let mut read_only: Vec<&str> = TOOL_EFFECTS
+            .iter()
+            .filter(|(_, effect)| *effect == Effect::ReadOnly)
+            .map(|(name, _)| *name)
+            .collect();
+        read_only.sort();
+        let mut expected = vec![
+            "find_by_name",
+            "find_file",
+            "grep_search",
+            "list_dir",
+            "list_directory",
+            "search_directory",
+            "view_file",
+        ];
+        expected.sort();
+        assert_eq!(read_only, expected);
+
+        let intent = ToolIntent {
+            call_id: "call-0".into(),
+            name: "list_directory".into(),
+            args: json!({}),
+            effect: effect_of("list_directory"),
+        };
+        assert!(matches!(
+            resume_steps(&[intent]).as_slice(),
+            [ResumeStep::Rerun(_)]
+        ));
     }
 
     #[test]

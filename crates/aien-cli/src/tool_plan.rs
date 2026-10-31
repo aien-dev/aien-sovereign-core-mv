@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! sovereign-core #666: plan a batch of tool calls into ordered segments.
 //!
 //! Mechanism after Hermes Agent (Nous Research, MIT, commit 5480918),
@@ -77,7 +92,7 @@ fn path_arg(args: &Value) -> Option<&str> {
 /// What a call touches, from its name and arguments alone.
 pub fn access_of(name: &str, args: &Value, cwd: &Path) -> Access {
     match name {
-        "view_file" | "list_dir" => match path_arg(args) {
+        "view_file" | "list_dir" | "list_directory" => match path_arg(args) {
             Some(p) => Access::Read(normalize(p, cwd)),
             None => Access::Barrier,
         },
@@ -85,10 +100,12 @@ pub fn access_of(name: &str, args: &Value, cwd: &Path) -> Access {
         "grep_search" | "search_directory" | "find_by_name" | "find_file" => {
             Access::Read(normalize(path_arg(args).unwrap_or("."), cwd))
         }
-        "write_to_file" | "replace_file_content" | "create_dir" => match path_arg(args) {
-            Some(p) => Access::Write(normalize(p, cwd)),
-            None => Access::Barrier,
-        },
+        "write_to_file" | "create_file" | "replace_file_content" | "edit_file" | "create_dir" => {
+            match path_arg(args) {
+                Some(p) => Access::Write(normalize(p, cwd)),
+                None => Access::Barrier,
+            }
+        }
         _ => Access::Barrier,
     }
 }
@@ -239,5 +256,25 @@ mod tests {
             access_of("brand_new_tool", &json!({"path": "a"}), &c),
             Access::Barrier
         );
+    }
+
+    /// The planner runs a call beside others as a reader only when the journal
+    /// says it is read-only, so a new alias in the dispatcher cannot become a
+    /// shared reader by mistake.
+    #[test]
+    fn readers_are_exactly_the_read_only_tools() {
+        use crate::turn_journal::{Effect, TOOL_EFFECTS};
+        let c = cwd();
+        for (name, effect) in TOOL_EFFECTS {
+            let reads = matches!(access_of(name, &json!({"path": "a"}), &c), Access::Read(_));
+            assert_eq!(reads, *effect == Effect::ReadOnly, "{name}");
+        }
+        assert_eq!(
+            access_of("list_directory", &json!({"path": "a"}), &c),
+            r("/w/a")
+        );
+        for name in ["create_file", "edit_file"] {
+            assert_eq!(access_of(name, &json!({"path": "a"}), &c), w("/w/a"));
+        }
     }
 }

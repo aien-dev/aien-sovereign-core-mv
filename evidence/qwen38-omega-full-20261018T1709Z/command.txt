@@ -1,0 +1,1 @@
+/home/drakestapleton/workspace/targets/q38-sc/release/qwen38_omega_full ~/models/qwen3.8-27b-fp8-017b9c7a 16 golden.json report.json

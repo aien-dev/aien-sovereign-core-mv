@@ -1,4 +1,19 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # Negative and positive tests for the release gate (check-release-candidate.sh, package-release.sh,
 # verify-release-assets.sh). Runs offline in a throwaway fixture tree; no cargo, no network.
 #   scripts/test-release-checks.sh
@@ -62,6 +77,12 @@ must_fail() { # expected-text args...
 }
 write_candidate "$AIEN_DIGEST"; write_locks
 must_pass; pass "matching tree accepted"
+sed -i \
+    -e "s|github.com/aien-dev/crumb-spec?|github.com/aien-dev/crumb-spec-mv?|" \
+    -e "s|github.com/aien-dev/spark-crumbs?|github.com/aien-dev/spark-crumbs-mv?|" \
+    "$T/Cargo.lock"
+must_pass; pass "-mv repo URLs accepted at the pinned revisions"
+write_locks
 
 # source pins
 echo "$(H64 9 | cut -c1-40)" > "$T/omega.lock"; must_fail "omega.lock is"; write_locks; pass "omega.lock mismatch rejected"

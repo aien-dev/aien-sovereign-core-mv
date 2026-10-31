@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# aien-alpha: cut an Alpha build. Alpha is the stage that is qualified on the Spark (Drake 2026-10-24); merging to
+# main never waits for the Spark.
+#
+#   aien-alpha REPO [REF]     qualify REF (default origin/main; must be on main) with a full-scope Spark judge:
+#                             every gate, GPU gates included (aien-test worker --once --full --operator). Then
+#                             publish the signed bundle and let pipeline.sh tag it alpha/YYYYMMDD.N (annotated tag
+#                             naming the bundle digest). Foreground. Exit 0 only when the commit carries an alpha tag.
+#   aien-alpha list [REPO]... the alpha tags of each repository (default: every enrolled repository), newest first.
+#
+# Source: aien-sovereign-core tools/aien-local-ci/aien-alpha, installed as ~/.local/bin/aien-alpha.
+set -euo pipefail
+CLONES=${AIEN_CLONES:-$HOME/workspace/pipeline/clones}
+STATE=${AIEN_STATE:-$HOME/.local/state/aien-local-ci}
+LIB=${AIEN_LIB:-$HOME/.local/lib/aien-local-ci}
+REPOS=${AIEN_REPOS:-aien-sovereign-core,omega,aienux,physics,aien-protocols,aegis-runtime,spark-rsi,aien-architecture,benchmarks,synapse,interplane}
+LOCAL_CI=${AIEN_LOCAL_CI:-aien-local-ci}
+die() { echo "aien-alpha: $*" >&2; exit 2; }
+usage() { sed -n '17,24p' "$0" >&2; exit 2; }
+
+list() {
+  local repo
+  if [[ $# -eq 0 ]]; then IFS=, read -r -a repos <<< "$REPOS"; set -- "${repos[@]}"; fi
+  for repo in "$@"; do
+    [[ -d $CLONES/$repo ]] || continue
+    git -C "$CLONES/$repo" fetch -q origin '+refs/tags/alpha/*:refs/tags/alpha/*' 2>/dev/null || true
+    git -C "$CLONES/$repo" for-each-ref --sort=-creatordate --format="$repo %(refname:short) %(*objectname:short) %(creatordate:iso-strict)" refs/tags/alpha/
+  done
+}
+
+[[ $# -ge 1 ]] || usage
+case $1 in
+  list) shift; list "$@"; exit 0 ;;
+  -h|--help) usage ;;
+esac
+repo=$1 ref=${2:-origin/main}
+[[ $repo =~ ^[A-Za-z0-9._-]+$ ]] || die "bad repository name '$repo'"
+clone=$CLONES/$repo
+[[ -d $clone ]] || die "no trusted clone $clone"
+git -C "$clone" fetch -q origin
+sha=$(git -C "$clone" rev-parse --verify "$ref^{commit}") || die "unknown ref $ref in $clone"
+git -C "$clone" merge-base --is-ancestor "$sha" origin/main || die "$sha is not on origin/main: an Alpha is cut from main only"
+existing=$(git -C "$clone" tag -l 'alpha/*' --points-at "$sha")
+[[ -z $existing ]] || { echo "aien-alpha: $repo $sha is already $existing"; exit 0; }
+
+echo "aien-alpha: $repo $sha: full-scope Spark qualification (every gate, GPU included)"
+rc=0
+"$LOCAL_CI" once "$repo" "$sha" --full --operator || rc=$?
+echo "aien-alpha: judge exit $rc (0 PASS, 1 FAIL, 2 NOT_RUN, 3 BLOCKED_HARDWARE, 4 BLOCKED_OPERATOR)"
+[[ $rc == 0 ]] || { echo "aien-alpha: not an Alpha. Evidence: $STATE/evidence/$repo/$sha/  bundle: $STATE/bundles/$repo/$sha/bundle.json"; exit 1; }
+# Wait for a running round to finish rather than be skipped by its lock.
+AIEN_LOCK_WAIT=900 bash "$LIB/pipeline.sh" publish --repos "$repo"
+AIEN_LOCK_WAIT=900 bash "$LIB/pipeline.sh" alpha --repos "$repo"
+tag=$(git -C "$clone" tag -l 'alpha/*' --points-at "$sha")
+if [[ -n $tag ]]; then
+  echo "aien-alpha: $repo $sha is $tag"
+  echo "  https://github.com/$(git -C "$clone" remote get-url origin | sed -E 's#^(git@github.com:|https://github.com/)##; s#\.git$##')/releases/tag/$tag"
+  exit 0
+fi
+echo "aien-alpha: PASS but no tag: a newer Alpha may already contain $sha; see: aien-alpha list $repo; $STATE/pipeline.jsonl" >&2
+exit 1

@@ -1,0 +1,32 @@
+omc d6290c7663c2b4bafb59eb3fdf812476e977f4c144def71095c6248ef9b96b84
+src 8e16f25dd7be21d9dea94252b4ad0ab3b30ac107e4445ed81224d29982e1aadd om/tur-ledger/tur-ledger.om
+sha 4f88dad60464eacd1655ba980f66b74000c6966ec0becbb80346ac1898e87a76 om/vendor/sha256.om
+ec 909f37c797e187bd0663bde9f57c75d6ce41eb2c9726a6b50d6fc714e424c060 omega-mv@6999fa9e6dae4847c155ef4eacaece74f491d3ca
+gate 8f96325dc3db714edf6837d4c78fb3e8ccc27dcc8e7a56798a5079fa152b2c21
+OpenSSL 3.0.13 30 Jan 2024 (Library: OpenSSL 3.0.13 30 Jan 2024)
+audit-source 8e16f25dd7be21d9dea94252b4ad0ab3b30ac107e4445ed81224d29982e1aadd
+PASS io.failed-sync-rollback-1 (exit 3, original journal, size 1047)
+PASS io.failed-sync-rollback-2 (exit 3, original journal, size 1047)
+PASS io.no-torn-tail-after-rollback
+PASS io.retry-writes-and-syncs
+PASS io.duplicate-prefund-needs-sync
+PASS io.duplicate-prefund-retry-synced
+PASS io.duplicate-reserve-needs-sync
+PASS io.duplicate-reserve-retry-synced
+PASS io.duplicate-settle-needs-sync
+PASS io.duplicate-settle-retry-synced
+PASS io.duplicate-refund-needs-sync
+PASS io.duplicate-refund-retry-synced
+PASS corrupt.acknowledged-settle
+PASS corrupt.acknowledged-tail-audit (exit 5, unchanged journal)
+PASS corrupt.acknowledged-tail-refund (exit 5, unchanged journal)
+PASS corrupt.acknowledged-tail-show (exit 5, unchanged journal)
+PASS corrupt.signed-tail-bad-hash (exit 5, unchanged journal)
+PASS corrupt.original-settlement-preserved
+PASS usage.fused-name-arguments (exit 2, unchanged journal)
+PASS usage.fused-command-argument (exit 2, unchanged journal)
+PASS usage.fused-role-arguments (exit 2, unchanged journal)
+PASS phase.reserve
+PASS phase.reserve-open-retry
+PASS phase.reserve-after-settle (exit 10, unchanged journal)
+PASS phase.reserve-after-refund (exit 10, unchanged journal)

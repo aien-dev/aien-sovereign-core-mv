@@ -1,3 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Drake Stapleton (AIEN / aien-dev)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! AIEN Native Transformer engine benchmark driver with Blackwell GB10 GPU acceleration.
 //! Executes real forward computation on DGX Spark GB10 in unified memory.
 
@@ -9,7 +24,7 @@ use aien_inference_abi::tensor::sample_argmax;
 use aien_inference_abi::tokenizer::TinyLlamaTokenizer;
 use aien_inference_abi::transformer_backend::NativeTransformerBackend;
 use aien_inference_abi::weights::{LayerKvCache, SequenceState, TransformerWeights};
-use aien_inference_abi::ModelConfig;
+use aien_inference_abi::{KvDType, ModelConfig};
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -99,9 +114,13 @@ fn execute_single_request(
     max_output_tokens: usize,
 ) -> SingleRequestResult {
     let num_layers = weights.config.num_layers;
+    // new_blackwell, the constructor this bench calls, sets kv_dtype to Fp32 and
+    // attaches no pool. storage_dtype() is that value with no pool, and
+    // prefill_sequence / execute_step write it onto each new SequenceState.
     let mut seq = SequenceState {
         tokens: Vec::with_capacity(prompt_tokens.len() + max_output_tokens),
         layers: vec![LayerKvCache::default(); num_layers],
+        kv_dtype: KvDType::Fp32,
     };
 
     let req_start = Instant::now();

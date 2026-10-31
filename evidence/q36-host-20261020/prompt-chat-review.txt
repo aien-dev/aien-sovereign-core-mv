@@ -1,0 +1,13 @@
+<|im_start|>user
+Review this C function and point out any bugs:
+
+int sum(int *a, int n) {
+    int s;
+    for (int i = 0; i <= n; i++) s += a[i];
+    return s;
+}<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
