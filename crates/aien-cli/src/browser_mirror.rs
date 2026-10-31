@@ -27,13 +27,17 @@
 //! * `screenshot` Open any URL, capture a PNG, record the document title.
 //! * `eval`       Open any URL and evaluate a JavaScript expression (value returned as JSON).
 //!
-//! Every mode spawns its own Chrome with a private profile directory and kills it
-//! when done, whatever happened in between.
+//! Every mode spawns its own Chrome with a private profile directory. Linux
+//! cleanup requires pidfd support to stop tagged detached helpers without a
+//! recycled-PID race. Detached-helper cleanup on other Unix is not qualified.
 
 use serde_json::{json, Value};
 use std::fs;
 use std::io::{Read, Write};
 use std::net::TcpStream;
+use std::os::unix::fs::DirBuilderExt;
+#[cfg(not(target_os = "linux"))]
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -47,6 +51,11 @@ const CHROME_BOOT_TIMEOUT: Duration = Duration::from_secs(20);
 const CDP_REPLY_TIMEOUT: Duration = Duration::from_secs(30);
 /// Largest websocket message we accept (screenshots are a few MB).
 const MAX_WS_MESSAGE: usize = 64 * 1024 * 1024;
+/// How long dropping a browser may take to see every one of its processes gone.
+const REAP_TIMEOUT: Duration = Duration::from_secs(5);
+/// Environment variable carrying a per-browser tag. Chrome's crash reporters detach into
+/// their own session, so they escape the process group; the inherited tag still finds them.
+const TAG_VAR: &str = "AIEN_BROWSER_MIRROR_TAG";
 
 /// Where screenshots and reports land when no `--out-dir` is given.
 pub fn default_out_dir() -> PathBuf {
@@ -401,17 +410,36 @@ struct ChromeProcess {
     child: Child,
     profile_dir: PathBuf,
     port: u16,
+    /// Value of `TAG_VAR` in every process this browser started (unique per spawn).
+    tag: String,
+    /// Once reaped, its numeric PID/PGID is no longer an ownership handle.
+    main_reaped: bool,
 }
 
 impl ChromeProcess {
     fn spawn(binary: &str, url: &str) -> Result<Self, String> {
-        let profile_dir = std::env::temp_dir().join(format!(
-            "aien-browser-mirror-{}-{}",
-            std::process::id(),
-            now_nanos()
-        ));
-        fs::create_dir_all(&profile_dir).map_err(|e| format!("profile dir: {}", e))?;
-        let child = Command::new(binary)
+        #[cfg(target_os = "linux")]
+        if !TaggedProcess::available() {
+            return Err("safe Chrome cleanup requires Linux pidfd signaling".to_string());
+        }
+        let tag = format!("aien-browser-mirror-{}-{}", std::process::id(), now_nanos());
+        let profile_dir = std::env::temp_dir().join(&tag);
+        fs::DirBuilder::new()
+            .mode(0o700)
+            .create(&profile_dir)
+            .map_err(|e| format!("profile dir: {}", e))?;
+        let mut command = Command::new(binary);
+        command.env(TAG_VAR, &tag);
+        // Linux teardown signals only pidfds, never numeric PID/PGID targets, so
+        // Chrome stays in the caller's process group: a Ctrl-C or a harness
+        // group kill that ends the caller before Drop runs also reaches Chrome.
+        // Other Unix teardown signals the group, so Chrome leads its own there.
+        #[cfg(not(target_os = "linux"))]
+        command.process_group(0);
+        // --use-gl=disabled --disable-software-rasterizer: with --disable-gpu alone, Chrome 153
+        // headless on aarch64 (DGX Spark, no display) falls back to a SwiftShader GPU process and
+        // Page.captureScreenshot then gets no reply at all (sovereign-core #661; main 92df274c).
+        let spawned = command
             .arg("--headless=new")
             .arg("--remote-debugging-port=0")
             .arg(format!("--user-data-dir={}", profile_dir.display()))
@@ -420,8 +448,6 @@ impl ChromeProcess {
             .arg("--no-default-browser-check")
             .arg("--disable-dev-shm-usage")
             .arg("--disable-gpu")
-            // Chrome 153 headless on the Spark (GB10, no display) never answers Page.captureScreenshot
-            // with the default software GL path; with GL off and no software rasterizer it does.
             .arg("--use-gl=disabled")
             .arg("--disable-software-rasterizer")
             .arg("--no-sandbox")
@@ -430,12 +456,20 @@ impl ChromeProcess {
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
-            .spawn()
-            .map_err(|e| format!("spawn {}: {}", binary, e))?;
+            .spawn();
+        let child = match spawned {
+            Ok(c) => c,
+            Err(e) => {
+                fs::remove_dir_all(&profile_dir).ok();
+                return Err(format!("spawn {}: {}", binary, e));
+            }
+        };
         let mut me = ChromeProcess {
             child,
             profile_dir,
             port: 0,
+            tag,
+            main_reaped: false,
         };
         // Chrome writes "<port>\n<browser ws path>" once the debugger listens.
         let deadline = Instant::now() + CHROME_BOOT_TIMEOUT;
@@ -452,6 +486,7 @@ impl ChromeProcess {
                 }
             }
             if let Ok(Some(status)) = me.child.try_wait() {
+                me.main_reaped = true;
                 return Err(format!("chrome exited early: {}", status));
             }
             if Instant::now() >= deadline {
@@ -486,11 +521,187 @@ impl ChromeProcess {
     }
 }
 
+/// Candidate PIDs whose environment holds the exact tag. Numeric PIDs are
+/// only discovery hints: pin identity and revalidate before signaling.
+#[cfg(test)]
+fn tagged_pids(tag: &str) -> Vec<u32> {
+    owned_pids(tag, None)
+}
+
+fn has_browser_identity(pid: u32, tag: &str, profile: Option<&Path>) -> bool {
+    let needle = format!("{}={}", TAG_VAR, tag);
+    let tagged = fs::read(format!("/proc/{}/environ", pid))
+        .map(|env| env.split(|b| *b == 0).any(|kv| kv == needle.as_bytes()))
+        .unwrap_or(false);
+    if tagged {
+        return true;
+    }
+    // Chrome scrubs the tag on some tasks, but retains the exact private
+    // profile argument. Never accept a substring or a prefix match.
+    profile.is_some_and(|path| {
+        let arg = format!("--user-data-dir={}", path.display());
+        fs::read(format!("/proc/{}/cmdline", pid))
+            .map(|cmd| {
+                if cmd.split(|b| *b == 0).any(|v| v == arg.as_bytes()) {
+                    return true;
+                }
+                // Chrome replaces argv with a single space-joined process
+                // title and clears the original environment. Accept that
+                // representation only for a Chrome image, with its exact
+                // executable prefix and a complete profile flag token.
+                use std::os::unix::ffi::OsStrExt;
+                let Ok(exe) = fs::read_link(format!("/proc/{}/exe", pid)) else {
+                    return false;
+                };
+                let chrome = matches!(
+                    exe.file_name().and_then(|v| v.to_str()),
+                    Some("chrome" | "chromium" | "chromium-browser")
+                );
+                let parts: Vec<_> = cmd.split(|b| *b == 0).filter(|v| !v.is_empty()).collect();
+                if !chrome || parts.len() != 1 {
+                    return false;
+                }
+                let title = parts[0];
+                let prefix = [exe.as_os_str().as_bytes(), b" "].concat();
+                let needle = [b" ", arg.as_bytes()].concat();
+                title.starts_with(&prefix)
+                    && title.windows(needle.len()).enumerate().any(|(i, w)| {
+                        w == needle
+                            && (i + needle.len() == title.len() || title[i + needle.len()] == b' ')
+                    })
+            })
+            .unwrap_or(false)
+    })
+}
+
+fn owned_pids(tag: &str, profile: Option<&Path>) -> Vec<u32> {
+    let Ok(entries) = fs::read_dir("/proc") else {
+        return Vec::new();
+    };
+    entries
+        .filter_map(|e| e.ok()?.file_name().to_str()?.parse::<u32>().ok())
+        .filter(|pid| has_browser_identity(*pid, tag, profile))
+        .collect()
+}
+
+/// A Linux process identity, not a numeric PID that can be recycled.
+#[cfg(target_os = "linux")]
+struct TaggedProcess(std::os::fd::OwnedFd);
+
+#[cfg(target_os = "linux")]
+impl TaggedProcess {
+    fn pin(pid: u32) -> Option<Self> {
+        use std::os::fd::FromRawFd;
+        let raw = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0u32) };
+        if raw < 0 {
+            return None;
+        }
+        Some(Self(unsafe {
+            std::os::fd::OwnedFd::from_raw_fd(raw as i32)
+        }))
+    }
+
+    fn available() -> bool {
+        Self::pin(std::process::id()).is_some_and(|p| p.signal(0))
+    }
+
+    #[cfg(test)]
+    fn open(pid: u32, tag: &str) -> Option<Self> {
+        Self::open_owned(pid, tag, None)
+    }
+
+    fn open_owned(pid: u32, tag: &str, profile: Option<&Path>) -> Option<Self> {
+        // Pin before checking the environment. If the task exits and the
+        // number is recycled, this descriptor still names only the old task.
+        let process = Self::pin(pid)?;
+        if !has_browser_identity(pid, tag, profile) {
+            return None;
+        }
+        Some(process)
+    }
+
+    fn kill(&self) -> bool {
+        self.signal(libc::SIGKILL)
+    }
+
+    fn signal(&self, signal: i32) -> bool {
+        use std::os::fd::AsRawFd;
+        unsafe {
+            libc::syscall(
+                libc::SYS_pidfd_send_signal,
+                self.0.as_raw_fd(),
+                signal,
+                std::ptr::null::<libc::siginfo_t>(),
+                0u32,
+            ) == 0
+        }
+    }
+}
+
+#[cfg(test)]
+fn kill_tagged_pid(pid: u32, tag: &str) -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        TaggedProcess::open(pid, tag).is_some_and(|p| p.kill())
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (pid, tag);
+        false
+    }
+}
+
+impl ChromeProcess {
+    /// Linux teardown pins tasks and revalidates their exact tag or private
+    /// profile identity before fd signaling. Rewritten Chrome titles require
+    /// a Chrome image, its exact executable prefix and a complete profile flag.
+    /// Returns true only after the child is reaped and no owned task remains.
+    /// A timeout returns false without a final unbounded child wait.
+    fn reap(&mut self) -> bool {
+        let deadline = Instant::now() + REAP_TIMEOUT;
+        // Linux uses only pinned identities; numeric groups are never a
+        // signal target, even if another reaper already collected the child.
+        #[cfg(not(target_os = "linux"))]
+        if !self.main_reaped {
+            unsafe { libc::kill(-(self.child.id() as libc::pid_t), libc::SIGKILL) };
+            self.child.kill().ok();
+        }
+        loop {
+            let tagged = owned_pids(&self.tag, Some(&self.profile_dir));
+            for &pid in &tagged {
+                #[cfg(target_os = "linux")]
+                if let Some(task) =
+                    TaggedProcess::open_owned(pid, &self.tag, Some(&self.profile_dir))
+                {
+                    task.kill();
+                }
+            }
+            match self.child.try_wait() {
+                Ok(Some(_)) => self.main_reaped = true,
+                Err(e) if e.raw_os_error() == Some(libc::ECHILD) => self.main_reaped = true,
+                _ => {}
+            }
+            if self.main_reaped && tagged.is_empty() {
+                return true;
+            }
+            if Instant::now() >= deadline {
+                return false;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+}
+
 impl Drop for ChromeProcess {
     fn drop(&mut self) {
-        self.child.kill().ok();
-        self.child.wait().ok();
-        fs::remove_dir_all(&self.profile_dir).ok();
+        if self.reap() {
+            fs::remove_dir_all(&self.profile_dir).ok();
+        } else {
+            eprintln!(
+                "browser cleanup timed out; retained private profile {}",
+                self.profile_dir.display()
+            );
+        }
     }
 }
 
@@ -958,5 +1169,320 @@ mod tests {
         );
         assert_eq!(ev["status"], "ok", "{}", ev);
         assert_eq!(ev["value"], "mirror:42");
+    }
+
+    /// `(state, ppid, starttime)` from `/proc/<pid>/stat`, or `None` once the pid is gone.
+    fn proc_stat(pid: u32) -> Option<(char, u32, u64)> {
+        let stat = fs::read_to_string(format!("/proc/{}/stat", pid)).ok()?;
+        // Fields after "(comm)": state ppid pgrp session tty tpgid flags ... starttime is the 20th.
+        let rest: Vec<&str> = stat.rsplit_once(')')?.1.split_whitespace().collect();
+        Some((
+            rest.first()?.chars().next()?,
+            rest.get(1)?.parse().ok()?,
+            rest.get(19)?.parse().ok()?,
+        ))
+    }
+
+    /// Every process the browser started, as `(pid, starttime)`: the descendants of `root`
+    /// plus the crash reporters they name with `--crashpad-handler-pid`, which detach into
+    /// their own session and so are nobody's child.
+    fn chrome_family(root: u32) -> Vec<(u32, u64)> {
+        let all: Vec<u32> = fs::read_dir("/proc")
+            .unwrap()
+            .filter_map(|e| e.ok()?.file_name().to_str()?.parse().ok())
+            .collect();
+        let mut family: Vec<u32> = vec![root];
+        let mut grew = true;
+        while grew {
+            grew = false;
+            for &p in &all {
+                if !family.contains(&p)
+                    && proc_stat(p).is_some_and(|(_, ppid, _)| family.contains(&ppid))
+                {
+                    family.push(p);
+                    grew = true;
+                }
+            }
+        }
+        let mut named: Vec<u32> = Vec::new();
+        for &p in &family {
+            let cmd = fs::read(format!("/proc/{}/cmdline", p)).unwrap_or_default();
+            for arg in cmd.split(|b| *b == 0) {
+                if let Some(n) = arg.strip_prefix(b"--crashpad-handler-pid=") {
+                    if let Some(n) = std::str::from_utf8(n).ok().and_then(|s| s.parse().ok()) {
+                        named.push(n);
+                    }
+                }
+            }
+        }
+        family.extend(named);
+        family.sort_unstable();
+        family.dedup();
+        family
+            .into_iter()
+            .filter_map(|p| proc_stat(p).map(|(_, _, start)| (p, start)))
+            .collect()
+    }
+
+    /// True while `pid` is the same process (same start time) and not a zombie.
+    fn still_running(pid: u32, start: u64) -> bool {
+        proc_stat(pid).is_some_and(|(state, _, s)| s == start && state != 'Z' && state != 'X')
+    }
+
+    /// Dropping the Chrome handle must leave none of its processes behind: not the GPU
+    /// process, not the renderers, not the crash reporters that detach from the group.
+    #[test]
+    fn dropping_chrome_reaps_every_helper() {
+        let Some(binary) = find_chrome() else {
+            eprintln!("skipping dropping_chrome_reaps_every_helper: no Chrome binary found");
+            return;
+        };
+        let dir = tempfile::tempdir().expect("tempdir");
+        let page = dir.path().join("stub.html");
+        fs::write(&page, "<!doctype html><title>reap</title><h1>reap</h1>").unwrap();
+        let chrome = ChromeProcess::spawn(&binary, &format!("file://{}", page.display()))
+            .expect("spawn chrome");
+        chrome.page_ws_url().expect("page target");
+        // The tag reaches the processes that leave the group (crash reporters).
+        let tag = chrome.tag.clone();
+        let tagged = tagged_pids(&tag);
+        assert!(!tagged.is_empty(), "no process carries the tag");
+        let mut family = chrome_family(chrome.child.id());
+        family.extend(
+            tagged
+                .iter()
+                .filter_map(|&p| proc_stat(p).map(|(_, _, s)| (p, s))),
+        );
+        family.sort_unstable();
+        family.dedup();
+        // Short-lived helpers may exit on their own between listing and checking.
+        let family: Vec<(u32, u64)> = family
+            .into_iter()
+            .filter(|&(p, s)| still_running(p, s))
+            .collect();
+
+        // Negative control: the detector sees the live helpers, so "none left" below is a
+        // real observation and not a detector that cannot see anything.
+        assert!(
+            family.len() >= 3,
+            "detector found too few chrome processes: {:?}",
+            family
+        );
+
+        drop(chrome);
+        // Orphaned zombies are reaped by init; give that a moment, never the processes.
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let mut left: Vec<(u32, u64)> = family.clone();
+        while !left.is_empty() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(100));
+            left.retain(|&(p, s)| still_running(p, s));
+        }
+        let names: Vec<String> = left
+            .iter()
+            .map(|(p, _)| {
+                let comm = fs::read_to_string(format!("/proc/{}/cmdline", p)).unwrap_or_default();
+                format!(
+                    "{} {}",
+                    p,
+                    comm.replace('\0', " ").chars().take(80).collect::<String>()
+                )
+            })
+            .collect();
+        assert!(
+            left.is_empty(),
+            "chrome processes left running: {:#?}",
+            names
+        );
+        assert_eq!(
+            tagged_pids(&tag),
+            Vec::<u32>::new(),
+            "tagged processes left"
+        );
+    }
+
+    /// The tag sweep finds exactly the processes spawned with its tag. Negative control:
+    /// a process with a different tag, and one with none, are never matched (so drop can
+    /// never kill a stranger).
+    #[test]
+    fn tag_sweep_matches_only_its_own_tag() {
+        let tag = format!("sweep-test-{}-{}", std::process::id(), now_nanos());
+        let spawn = |value: Option<&str>| {
+            let mut c = Command::new("sleep");
+            c.arg("30").stdin(Stdio::null()).stdout(Stdio::null());
+            if let Some(v) = value {
+                c.env(TAG_VAR, v);
+            }
+            c.spawn().expect("spawn sleep")
+        };
+        let mut mine = spawn(Some(&tag));
+        let mut prefix = spawn(Some(&tag[..tag.len() - 1]));
+        let mut other = spawn(Some("sweep-test-someone-else"));
+        let mut none = spawn(None);
+        // A freshly forked child may still hold the parent's environment until exec.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut found = tagged_pids(&tag);
+        while found.is_empty() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+            found = tagged_pids(&tag);
+        }
+        let ids = [mine.id(), prefix.id(), other.id(), none.id()];
+        for c in [&mut mine, &mut prefix, &mut other, &mut none] {
+            c.kill().ok();
+            c.wait().ok();
+        }
+        assert_eq!(found, vec![ids[0]], "sweep must match only {:?}", ids);
+        assert!(tagged_pids(&tag).is_empty());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn stale_candidates_and_exited_pidfds_cannot_signal_a_stranger() {
+        let tag = format!("pidfd-test-{}-{}", std::process::id(), now_nanos());
+        let spawn = |value: &str| {
+            Command::new("sleep")
+                .arg("30")
+                .env(TAG_VAR, value)
+                .spawn()
+                .expect("spawn owned fixture")
+        };
+        let mut mine = spawn(&tag);
+        let mut prefix = spawn(&tag[..tag.len() - 1]);
+        let mut other = spawn("pidfd-test-other");
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let pinned = loop {
+            if let Some(p) = TaggedProcess::open(mine.id(), &tag) {
+                break Some(p);
+            }
+            if Instant::now() >= deadline {
+                break None;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        // Simulate a stale discovery list that now names a foreign task:
+        // validation must happen after opening the identity handle.
+        let refused_prefix = !kill_tagged_pid(prefix.id(), &tag);
+        let refused_other = !kill_tagged_pid(other.id(), &tag);
+        let owned_signaled = pinned.as_ref().is_some_and(|p| p.kill());
+        if !owned_signaled {
+            mine.kill().ok();
+        }
+        mine.wait().ok();
+        let dead_handle_refused = pinned.as_ref().is_some_and(|p| !p.kill());
+        let neighbors_alive =
+            matches!(prefix.try_wait(), Ok(None)) && matches!(other.try_wait(), Ok(None));
+        for c in [&mut prefix, &mut other] {
+            c.kill().ok();
+            c.wait().ok();
+        }
+        assert!(
+            pinned.is_some(),
+            "kernel pidfd support and exact-tag pin required"
+        );
+        assert!(
+            owned_signaled
+                && refused_prefix
+                && refused_other
+                && dead_handle_refused
+                && neighbors_alive
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn undetected_child_does_not_extend_drop_past_cleanup_deadline() {
+        let dir = tempfile::tempdir().unwrap();
+        let profile = dir.path().join("private-profile");
+        fs::create_dir(&profile).unwrap();
+        let child = Command::new("sleep")
+            .arg("8")
+            .env_remove(TAG_VAR)
+            .spawn()
+            .unwrap();
+        let pid = child.id();
+        // Keep an owner-controlled pinned handle even when the production
+        // detector intentionally cannot recognize this synthetic child.
+        let control = TaggedProcess::pin(pid).unwrap();
+        let chrome = ChromeProcess {
+            child,
+            profile_dir: profile.clone(),
+            port: 0,
+            tag: format!("undetected-{}-{}", std::process::id(), now_nanos()),
+            main_reaped: false,
+        };
+        let start = Instant::now();
+        drop(chrome);
+        let elapsed = start.elapsed();
+        let retained = profile.exists();
+        control.kill();
+        unsafe {
+            libc::waitpid(pid as libc::pid_t, std::ptr::null_mut(), 0);
+        }
+        assert!(
+            elapsed < REAP_TIMEOUT + Duration::from_secs(2),
+            "drop exceeded deadline: {elapsed:?}"
+        );
+        assert!(
+            retained,
+            "uncertain teardown must retain its private profile"
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    #[ignore = "explicit isolated inherited-SIGCHLD qualification"]
+    fn cleanup_with_inherited_ignored_sigchld() {
+        // Run via exec under SIGCHLD=SIG_IGN, not through chrome_binary():
+        // its --version probe cannot wait for auto-reaped children.
+        let mut action = std::mem::MaybeUninit::<libc::sigaction>::uninit();
+        assert_eq!(
+            unsafe { libc::sigaction(libc::SIGCHLD, std::ptr::null(), action.as_mut_ptr()) },
+            0
+        );
+        assert_eq!(unsafe { action.assume_init() }.sa_sigaction, libc::SIG_IGN);
+        let binary = std::env::var("AIEN_CHROME").expect("explicit Chrome path required");
+        let chrome = ChromeProcess::spawn(&binary, "data:text/html,owned-sigchld-fixture").unwrap();
+        let tag = chrome.tag.clone();
+        let profile = chrome.profile_dir.clone();
+        drop(chrome);
+        assert!(owned_pids(&tag, Some(&profile)).is_empty());
+        assert!(!profile.exists());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn exact_private_profile_identifies_a_task_without_its_tag() {
+        let dir = tempfile::tempdir().unwrap();
+        let profile = dir.path().join("private-profile");
+        let tag = format!("profile-fixture-{}-{}", std::process::id(), now_nanos());
+        let spawn = |path: &Path| {
+            Command::new("sh")
+                .args(["-c", "kill -STOP $$", "profile-fixture"])
+                .arg(format!("--user-data-dir={}", path.display()))
+                .env_remove(TAG_VAR)
+                .spawn()
+                .unwrap()
+        };
+        let mut mine = spawn(&profile);
+        let mut neighbor = spawn(&profile.with_extension("other"));
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let pinned = loop {
+            if let Some(p) = TaggedProcess::open_owned(mine.id(), &tag, Some(&profile)) {
+                break Some(p);
+            }
+            if Instant::now() >= deadline {
+                break None;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        let rejected = TaggedProcess::open_owned(neighbor.id(), &tag, Some(&profile)).is_none();
+        let signaled = pinned.as_ref().is_some_and(|p| p.kill());
+        if !signaled {
+            mine.kill().ok();
+        }
+        mine.wait().ok();
+        let neighbor_alive = matches!(neighbor.try_wait(), Ok(None));
+        neighbor.kill().ok();
+        neighbor.wait().ok();
+        assert!(pinned.is_some() && signaled && rejected && neighbor_alive);
     }
 }
