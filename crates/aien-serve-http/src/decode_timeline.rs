@@ -490,17 +490,28 @@ pub fn check(records: &[Record]) -> Vec<String> {
             }
         }
         if r.dev.len() != r.launches as usize {
-            bad.push(format!("{at}: {} device spans for {} launches", r.dev.len(), r.launches));
+            bad.push(format!(
+                "{at}: {} device spans for {} launches",
+                r.dev.len(),
+                r.launches
+            ));
         }
         if let (Some(a), Some(b)) = (r.dev.first(), r.dev.last()) {
             let dev_span = b.t1.saturating_sub(a.t0);
             if dev_span > r.chip_ns {
-                bad.push(format!("{at}: device span {dev_span} ns > chip_ns {}", r.chip_ns));
+                bad.push(format!(
+                    "{at}: device span {dev_span} ns > chip_ns {}",
+                    r.chip_ns
+                ));
             }
         }
         if let Some(w) = r.host.iter().find(|s| s.name == "graph_submit_wait") {
             if r.chip_ns > dur(w) {
-                bad.push(format!("{at}: chip_ns {} > graph_submit_wait {}", r.chip_ns, dur(w)));
+                bad.push(format!(
+                    "{at}: chip_ns {} > graph_submit_wait {}",
+                    r.chip_ns,
+                    dur(w)
+                ));
             }
         }
         if let Some(c) = &first_census {
@@ -516,7 +527,11 @@ pub fn check(records: &[Record]) -> Vec<String> {
             let p = &records[i - 1];
             if let (Some(pe), Some(s)) = (p.host.last(), r.host.first()) {
                 if s.t0 < pe.t1 {
-                    bad.push(format!("{at}: starts {} before record {} ends", pe.t1 - s.t0, i - 1));
+                    bad.push(format!(
+                        "{at}: starts {} before record {} ends",
+                        pe.t1 - s.t0,
+                        i - 1
+                    ));
                 }
                 if r.beat == p.beat + 1 && s.t0 != pe.t1 {
                     bad.push(format!("{at}: beat follows beat {} with a gap", p.beat));
@@ -630,13 +645,19 @@ pub fn check_tokens(records: &[TokenRecord]) -> Vec<String> {
             bad.push(format!("{at}: schema {}", r.schema));
         }
         if r.seq != i as u64 {
-            bad.push(format!("{at}: seq {} (a record is missing or repeated)", r.seq));
+            bad.push(format!(
+                "{at}: seq {} (a record is missing or repeated)",
+                r.seq
+            ));
         }
         if r.rows == 0 || r.steps == 0 {
             bad.push(format!("{at}: {} rows, {} steps", r.rows, r.steps));
         }
         if r.t1 < r.t0 || r.total_ns != r.t1 - r.t0 {
-            bad.push(format!("{at}: total {} for t0 {} t1 {}", r.total_ns, r.t0, r.t1));
+            bad.push(format!(
+                "{at}: total {} for t0 {} t1 {}",
+                r.total_ns, r.t0, r.t1
+            ));
         }
         let order = [
             ("record_ns <= graph_ns", r.record_ns <= r.graph_ns),
@@ -663,7 +684,11 @@ pub fn check_tokens(records: &[TokenRecord]) -> Vec<String> {
         if i > 0 {
             let p = &records[i - 1];
             if r.t0 < p.t1 {
-                bad.push(format!("{at}: starts {} before record {} ends", p.t1 - r.t0, i - 1));
+                bad.push(format!(
+                    "{at}: starts {} before record {} ends",
+                    p.t1 - r.t0,
+                    i - 1
+                ));
             }
             if r.beat == p.beat + 1 && r.t0 != p.t1 {
                 bad.push(format!("{at}: beat follows beat {} with a gap", p.beat));
@@ -791,7 +816,10 @@ fn run_check_tokens(path: &str, o: &TokenOpts, text: &str) -> u8 {
             range.end
         );
         if o.slice.is_some() {
-            println!("(* records {}..{} (seq) of {path}; the whole file checked green *)", range.start, range.end);
+            println!(
+                "(* records {}..{} (seq) of {path}; the whole file checked green *)",
+                range.start, range.end
+            );
         }
         print!("{}", summary_tokens(&records[range]));
         0
@@ -799,7 +827,11 @@ fn run_check_tokens(path: &str, o: &TokenOpts, text: &str) -> u8 {
         for b in bad.iter().take(20) {
             eprintln!("RED: {b}");
         }
-        eprintln!("token receipt RED: {} findings over {} records, {path}", bad.len(), records.len());
+        eprintln!(
+            "token receipt RED: {} findings over {} records, {path}",
+            bad.len(),
+            records.len()
+        );
         1
     }
 }
@@ -861,7 +893,11 @@ pub fn run_check(args: &[String]) -> u8 {
     if let Some(d) = drop {
         let parts: Vec<&str> = d.split(':').collect();
         let parsed = match parts.as_slice() {
-            [r, w, i] => r.parse::<usize>().ok().zip(i.parse::<usize>().ok()).map(|(r, i)| (r, *w, i)),
+            [r, w, i] => r
+                .parse::<usize>()
+                .ok()
+                .zip(i.parse::<usize>().ok())
+                .map(|(r, i)| (r, *w, i)),
             _ => None,
         };
         let ok = match parsed {
@@ -894,7 +930,11 @@ pub fn run_check(args: &[String]) -> u8 {
         for b in bad.iter().take(20) {
             eprintln!("RED: {b}");
         }
-        eprintln!("decode timeline RED: {} findings over {} records, {path}", bad.len(), records.len());
+        eprintln!(
+            "decode timeline RED: {} findings over {} records, {path}",
+            bad.len(),
+            records.len()
+        );
         1
     }
 }
@@ -927,7 +967,9 @@ mod tests {
             } else {
                 k.extend(["mix", "ab", "gdn", "o_proj"]);
             }
-            k.extend(["res", "norm", "router", "gate_up", "swiglu", "down", "gather", "res"]);
+            k.extend([
+                "res", "norm", "router", "gate_up", "swiglu", "down", "gather", "res",
+            ]);
         }
         k.extend([
             "norm", "lm_head", "lm_head", "lm_head", "argmax", "argmax", "lm_head", "argmax",
@@ -993,7 +1035,15 @@ mod tests {
     fn complete_beats_are_green() {
         let r = records(5);
         assert_eq!(check(&r), Vec::<String>::new());
-        assert_eq!(read_jsonl(&r.iter().map(|x| serde_json::to_string(x).unwrap() + "\n").collect::<String>()).unwrap(), r);
+        assert_eq!(
+            read_jsonl(
+                &r.iter()
+                    .map(|x| serde_json::to_string(x).unwrap() + "\n")
+                    .collect::<String>()
+            )
+            .unwrap(),
+            r
+        );
     }
 
     #[test]
@@ -1009,7 +1059,10 @@ mod tests {
         let mut r = records(3);
         r[2].dev.remove(100);
         let bad = check(&r);
-        assert!(bad.iter().any(|b| b.contains("device spans for")), "{bad:?}");
+        assert!(
+            bad.iter().any(|b| b.contains("device spans for")),
+            "{bad:?}"
+        );
         assert!(bad.iter().any(|b| b.contains("dev 99")), "{bad:?}");
     }
 
@@ -1018,7 +1071,10 @@ mod tests {
         let mut r = records(4);
         r.remove(2);
         let bad = check(&r);
-        assert!(bad.iter().any(|b| b.contains("missing or repeated")), "{bad:?}");
+        assert!(
+            bad.iter().any(|b| b.contains("missing or repeated")),
+            "{bad:?}"
+        );
     }
 
     #[test]
@@ -1036,21 +1092,48 @@ mod tests {
         let k = kinds40();
         let c = categories(&k);
         let n = k.len();
-        assert_eq!(&c[n - 9..], ["glue", "head_screen", "head_screen", "head_screen", "glue", "glue", "head_recheck", "token_pick", "token_pick"]);
+        assert_eq!(
+            &c[n - 9..],
+            [
+                "glue",
+                "head_screen",
+                "head_screen",
+                "head_screen",
+                "glue",
+                "glue",
+                "head_recheck",
+                "token_pick",
+                "token_pick"
+            ]
+        );
         assert_eq!(c.iter().filter(|x| **x == "experts").count(), 80);
         assert_eq!(c.iter().filter(|x| **x == "router").count(), 40);
-        let plain: Vec<String> = ["down", "norm", "lm_head", "argmax", "argmax"].map(String::from).into();
-        assert_eq!(categories(&plain), ["experts", "glue", "head_plain", "token_pick", "token_pick"]);
+        let plain: Vec<String> = ["down", "norm", "lm_head", "argmax", "argmax"]
+            .map(String::from)
+            .into();
+        assert_eq!(
+            categories(&plain),
+            ["experts", "glue", "head_plain", "token_pick", "token_pick"]
+        );
     }
 
     #[test]
     fn summary_lists_every_beat() {
         let r = records(4);
         let s = summary(&r);
-        assert!(s.contains("\"period\" -> {1000000, 1000000, 1000000, 1000000}"), "{s}");
-        assert!(s.contains("\"dev:head_recheck\" -> {1000, 1000, 1000, 1000}"), "{s}");
+        assert!(
+            s.contains("\"period\" -> {1000000, 1000000, 1000000, 1000000}"),
+            "{s}"
+        );
+        assert!(
+            s.contains("\"dev:head_recheck\" -> {1000, 1000, 1000, 1000}"),
+            "{s}"
+        );
         assert!(s.contains("\"submits\" -> {1, 1, 1, 1}"), "{s}");
-        assert!(s.contains("\"submit_poll\" -> {40000, 40000, 40000, 40000}"), "{s}");
+        assert!(
+            s.contains("\"submit_poll\" -> {40000, 40000, 40000, 40000}"),
+            "{s}"
+        );
         assert!(s.ends_with(GATE_WL), "{s}");
     }
 
@@ -1093,7 +1176,10 @@ mod tests {
 
     fn token_file(name: &str, recs: &[TokenRecord]) -> String {
         let p = std::env::temp_dir().join(format!("dra66-{}-{name}.jsonl", std::process::id()));
-        let text: String = recs.iter().map(|r| serde_json::to_string(r).unwrap() + "\n").collect();
+        let text: String = recs
+            .iter()
+            .map(|r| serde_json::to_string(r).unwrap() + "\n")
+            .collect();
         std::fs::write(&p, text).unwrap();
         p.to_string_lossy().into_owned()
     }
@@ -1148,16 +1234,28 @@ mod tests {
         }
         assert_eq!(check_tokens(&recs), Vec::<String>::new());
         let s = summary_tokens(&recs[2..5]);
-        assert!(s.contains("\"host_overhead_ns\" -> {401000, 401000, 401000}\n"), "{s}");
+        assert!(
+            s.contains("\"host_overhead_ns\" -> {401000, 401000, 401000}\n"),
+            "{s}"
+        );
         assert!(s.contains("hostLB = Median["), "{s}");
-        assert!(!s.contains("<= 500000"), "the lower bound alone carries no verdict: {s}");
+        assert!(
+            !s.contains("<= 500000"),
+            "the lower bound alone carries no verdict: {s}"
+        );
     }
 
     #[test]
     fn launch_timeline_takes_drop_only() {
         let r = records(3);
         let p = std::env::temp_dir().join(format!("dra66-{}-launch.jsonl", std::process::id()));
-        std::fs::write(&p, r.iter().map(|x| serde_json::to_string(x).unwrap() + "\n").collect::<String>()).unwrap();
+        std::fs::write(
+            &p,
+            r.iter()
+                .map(|x| serde_json::to_string(x).unwrap() + "\n")
+                .collect::<String>(),
+        )
+        .unwrap();
         let f = p.to_string_lossy().into_owned();
         assert_eq!(cli(&f, &[]), 0);
         assert_eq!(cli(&f, &["--drop", "1:record:0"]), 1);

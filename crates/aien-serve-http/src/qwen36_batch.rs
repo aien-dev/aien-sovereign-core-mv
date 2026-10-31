@@ -1061,7 +1061,10 @@ impl<S: RowStep> Scheduler<S> {
                     // the step instead of leaving that request waiting forever.
                     Ok(outs)
                         if outs.len() == feed.len()
-                            && feed.iter().zip(&outs).all(|(f, o)| !f.logits || o.logits.is_some()) =>
+                            && feed
+                                .iter()
+                                .zip(&outs)
+                                .all(|(f, o)| !f.logits || o.logits.is_some()) =>
                     {
                         if stamp {
                             let rt = self.model.row_timeline(feed[0].row);

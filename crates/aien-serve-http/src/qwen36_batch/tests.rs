@@ -1183,7 +1183,9 @@ fn token_receipt_at_one_and_eight_conversations() {
     let hs: Vec<_> = (0..8u32)
         .map(|i| {
             let d = Arc::clone(&d);
-            let p: Vec<u32> = (0..5).map(|k| (k * 7 + i * 19 + 2) % VOCAB as u32).collect();
+            let p: Vec<u32> = (0..5)
+                .map(|k| (k * 7 + i * 19 + 2) % VOCAB as u32)
+                .collect();
             std::thread::spawn(move || (run(&d, &p, &greedy(30)).0, p))
         })
         .collect();
@@ -1196,12 +1198,24 @@ fn token_receipt_at_one_and_eight_conversations() {
         crate::decode_timeline::read_jsonl_as(&text).unwrap();
     // 20 tokens alone: the first from the prompt's last step, then 19 decoding beats.
     assert_eq!(one.lines().count(), 19, "{one}");
-    assert_eq!(crate::decode_timeline::check_tokens(&recs), Vec::<String>::new());
-    let clean = |k: u64| recs.iter().filter(|r| r.rows == k && r.prompt_rows == 0).count();
+    assert_eq!(
+        crate::decode_timeline::check_tokens(&recs),
+        Vec::<String>::new()
+    );
+    let clean = |k: u64| {
+        recs.iter()
+            .filter(|r| r.rows == k && r.prompt_rows == 0)
+            .count()
+    };
     // The solo reply's 19 beats come first, each one clean row.
-    assert!(recs[..19].iter().all(|r| r.rows == 1 && r.prompt_rows == 0), "{text}");
+    assert!(
+        recs[..19].iter().all(|r| r.rows == 1 && r.prompt_rows == 0),
+        "{text}"
+    );
     assert!(clean(8) >= 10, "{text}");
-    assert!(recs.iter().all(|r| r.chip_ns > 0 && r.host_overhead_ns < r.total_ns));
+    assert!(recs
+        .iter()
+        .all(|r| r.chip_ns > 0 && r.host_overhead_ns < r.total_ns));
     let mut no_rec = recs.clone();
     no_rec.remove(5);
     assert!(!crate::decode_timeline::check_tokens(&no_rec).is_empty());
@@ -1243,7 +1257,10 @@ fn seeded_words(params: impl Fn(u64) -> GenerateParams) -> (Vec<Vec<u32>>, Vec<u
             std::thread::spawn(move || run(&d, &prompt, &p).0)
         })
         .collect();
-    let beside = hs.into_iter().map(|h| h.join().unwrap()).collect::<Vec<_>>();
+    let beside = hs
+        .into_iter()
+        .map(|h| h.join().unwrap())
+        .collect::<Vec<_>>();
     (alone, beside[0].clone())
 }
 
@@ -1263,12 +1280,18 @@ fn seeds_hold(alone: &[Vec<u32>], beside: &[u32]) -> bool {
 fn seeds_spread_at_t07_through_the_batch_door() {
     crate::sampling::install_mutant_from_env().unwrap();
     let ignore_seed = seeded_words(|_| sampled(0, 24));
-    assert!(!seeds_hold(&ignore_seed.0, &ignore_seed.1), "ignore-seed must be red");
+    assert!(
+        !seeds_hold(&ignore_seed.0, &ignore_seed.1),
+        "ignore-seed must be red"
+    );
     let force_greedy = seeded_words(|s| GenerateParams {
         temperature: 0.0,
         ..sampled(s, 24)
     });
-    assert!(!seeds_hold(&force_greedy.0, &force_greedy.1), "force-greedy must be red");
+    assert!(
+        !seeds_hold(&force_greedy.0, &force_greedy.1),
+        "force-greedy must be red"
+    );
     let honest = seeded_words(|s| sampled(s, 24));
     assert!(seeds_hold(&honest.0, &honest.1), "{honest:?}");
     assert!(honest.0.iter().all(|w| w.len() == 24));
