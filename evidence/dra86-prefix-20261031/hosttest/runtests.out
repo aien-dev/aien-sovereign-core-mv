@@ -1,0 +1,75 @@
+
+== T0 plan
+step server env (batch door, --batch-slots 8)                       probe        needs      est_s
+1    -                                                              conv ref     -          240
+2    AIEN_Q36_PREFIX=1 AIEN_Q36_PREFIX_MUTANT=1                     conv red     1          180
+3    AIEN_Q36_PREFIX=1                                              conv green   1 2        180
+4a   AIEN_Q36_PREFIX=1 AIEN_Q36_PREFIX_DIR=OUT/4a/store AIEN_KV_STORE_KEY=(run key) conv write   1          95
+4b   AIEN_Q36_PREFIX=1 AIEN_Q36_PREFIX_DIR=OUT/4a/store AIEN_KV_STORE_KEY=(run key) conv reload  1 4a!      85
+4c   AIEN_Q36_PREFIX=1 AIEN_Q36_NS_PROBE=1 AIEN_Q36_PREFIX_DIR=OUT/4a/store AIEN_KV_STORE_KEY=(run key) conv other   1 4a! 4b!  85
+5    AIEN_Q36_PREFIX=1 AIEN_Q36_PREFIX_POOL_GB=0.5                  conv budget  1          200
+6a   AIEN_Q36_PREFIX=1                                              time warm    -          355
+6b   -                                                              time cold    -          620
+needs: N = step N earlier in this run or its passing step receipt in OUT/N; N! = earlier in this run (the store key).
+Queue slices (chip/DRA-86, cap 1060 s each): s01-identity = 1 2 3 (600 s), s02-controls = 4a 4b 4c 5 (465 s), s03-time = 6a 6b (975 s).
+ok   plan (rc 0)
+
+== T1 no SPARK_WINDOW -> NOT_RUN
+window-dra86: NOT_RUN: no SPARK_WINDOW: run as 'spark-window run bash /tmp/pdra4-wt/DRA-86/sc/evidence/dra86-prefix-20261031/window-dra86.sh run ...' inside a --quiet exclusive window
+ok   no window (rc 3)
+
+== T2 every step on the exact mock door
+ok   all steps (rc 0)
+{"step":"1","rc":0,"verdict":"RECORDED","why":"","r":"RECORDED","rwhy":"","same":0,"diff":0,"restored":0,"turn2":35}
+{"step":"2","rc":0,"verdict":"PASS","why":"","r":"PASS","rwhy":"","same":35,"diff":35,"restored":35,"turn2":35}
+{"step":"3","rc":0,"verdict":"PASS","why":"","r":"PASS","rwhy":"","same":70,"diff":0,"restored":35,"turn2":35}
+{"step":"4a","rc":0,"verdict":"RECORDED","why":"","r":"RECORDED","rwhy":"2 sealed nodes","same":1,"diff":0,"restored":0,"turn2":0}
+{"step":"4b","rc":0,"verdict":"PASS","why":"","r":"PASS","rwhy":"","same":1,"diff":0,"restored":1,"turn2":1}
+{"step":"4c","rc":0,"verdict":"PASS","why":"","r":"PASS","rwhy":"","same":1,"diff":0,"restored":0,"turn2":1}
+{"step":"5","rc":0,"verdict":"PASS","why":"","r":"PASS","rwhy":"9 saves, max evicted 4","same":6,"diff":0,"restored":3,"turn2":3}
+{"step":"6a","rc":0,"verdict":"RECORDED","why":"","r":"RECORDED","rwhy":null,"same":null,"diff":null,"restored":null,"turn2":null}
+{"step":"6b","rc":0,"verdict":"RECORDED","why":"","r":"RECORDED","rwhy":null,"same":null,"diff":null,"restored":null,"turn2":null}
+{"kind":"warm","run":1,"ok":true,"http_ttft_s":0.02486896514892578,"reused_tok":33065,"door_restore_ms":3,"door_prefill_ms":1}
+{"kind":"warm","run":2,"ok":true,"http_ttft_s":0.01871967315673828,"reused_tok":33065,"door_restore_ms":3,"door_prefill_ms":1}
+{"kind":"warm","run":3,"ok":true,"http_ttft_s":0.017479658126831055,"reused_tok":33065,"door_restore_ms":3,"door_prefill_ms":1}
+{"kind":"cold","run":1,"ok":true,"http_ttft_s":0.020830392837524414,"reused_tok":0,"door_restore_ms":null,"door_prefill_ms":1}
+store key: 3 server starts got it, 1 distinct, files under the receipts that contain it: 0
+ok   key reached 4a 4b 4c, one key, never in a receipt (rc 0)
+2
+
+== T3 red mutant that changes nothing (MOCK_M=nomut): step 2 FAIL
+ok   red without effect (rc 1)
+{"step":"2","rc":1,"verdict":"FAIL","why":"","r":"FAIL","rwhy":"no turn 2 differs: the gate cannot see the off-by-one","same":70,"diff":0,"restored":35,"turn2":35}
+
+== T4 green after that failed red: NOT_RUN (red receipt not passing)
+window-dra86: NOT_RUN: step 3 needs step 2 earlier in this run or its passing step receipt in /tmp/dra86-hosttest/o1/2 for bin 4e13db1b9505c5e100bb10374c863c74d84500942dfbef74eab3c39114dd6004
+ok   green without red (rc 3)
+
+== T5 red again, then a door that never restores (MOCK_M=norestore): red INCONCLUSIVE
+ok   red without restore (rc 2)
+{"step":"2","rc":2,"verdict":"INCONCLUSIVE","why":"","r":"INCONCLUSIVE","rwhy":"35 turn 2 without a restore line","same":70,"diff":0,"restored":0,"turn2":35}
+
+== T6 exact red, then green on a door that never restores: green FAIL
+ok   red (rc 0)
+ok   green without restore (rc 1)
+{"step":"3","rc":1,"verdict":"FAIL","why":"","r":"FAIL","rwhy":"35 turn 2 not restored from the cache","same":70,"diff":0,"restored":0,"turn2":35}
+
+== T7 store that loads another namespace (MOCK_M=ignore_ns): 4c FAIL
+ok   stale store loaded (rc 1)
+{"step":"4c","rc":1,"verdict":"FAIL","why":"","r":"FAIL","rwhy":"loaded 2 discarded 0 restored 1 (want 0, >= 1, 0)","same":1,"diff":0,"restored":1,"turn2":1}
+
+== T8 4b without 4a in the run: NOT_RUN
+window-dra86: NOT_RUN: step 4b needs step 4a earlier in this run (the store and its key live for one run)
+ok   reload alone (rc 3)
+
+== T9 green on an empty OUT: NOT_RUN
+window-dra86: NOT_RUN: step 3 needs step 1 earlier in this run or its passing step receipt in /tmp/dra86-hosttest/o9/1 for bin 4e13db1b9505c5e100bb10374c863c74d84500942dfbef74eab3c39114dd6004
+ok   green on empty OUT (rc 3)
+
+== T10 budget step with the default budget (step 3 env, probe budget): FAIL (no eviction, not 0.5 GiB)
+{"verdict":"FAIL","why":"the budget is not 0.5 GiB"}
+ok   budget at 16 GiB (rc 1)
+
+leftover processes: 0
+lock free
+runtests: 0 failed

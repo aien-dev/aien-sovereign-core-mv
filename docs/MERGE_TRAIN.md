@@ -33,7 +33,9 @@ A test build (`cargo build --release -p aien-serve-http --features aien-test-swi
 | `exact_head` | `false`: the plain one-pass head instead of the exact two-pass head | `true` |
 | `mutant` | graph mutant `k` (the `AIEN_Q36_TEST_MUTANT` numbers) for this row's steps | `0` |
 | `row_swap` | at this row's `k`-th step the scheduler trades rows with another decoding conversation (both go red) | off |
-| `prefill_chunk`, `prefix_pool`, `state_bf16` | names reserved for L369, L375, L313; refused until their lever wires them | |
+| `prefix_pool` | L375 shared prompt cache. `false`: this prompt is read cold (no pool, no row reuse, nothing saved to the pool), the reference the cache must match | `true` |
+| `prefix_mutant` | L375 red control: a restore from the pool lands one position early for this row. The row saves nothing and its next conversation starts cold | off |
+| `prefill_chunk`, `state_bf16` | names reserved for L369, L313; refused until their lever wires them | |
 
 Honesty rules, enforced in code:
 

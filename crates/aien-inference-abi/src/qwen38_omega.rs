@@ -218,6 +218,48 @@ impl Qwen38Snapshot {
         );
         (na != nb || self.pos != o.pos).then_some(na.min(nb))
     }
+
+    /// Host bytes the copy holds.
+    pub fn bytes(&self) -> usize {
+        (self.tails.len() + self.states.len()) * 4
+    }
+
+    /// The copy as bytes (the shared prompt cache's files): position, the two lengths (u64 LE),
+    /// then every f32's bits LE. [`Self::from_bytes`] gives back the identical copy.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut b = Vec::with_capacity(24 + self.bytes());
+        for n in [self.pos, self.tails.len(), self.states.len()] {
+            b.extend_from_slice(&(n as u64).to_le_bytes());
+        }
+        for v in self.tails.iter().chain(&self.states) {
+            b.extend_from_slice(&v.to_bits().to_le_bytes());
+        }
+        b
+    }
+
+    pub fn from_bytes(b: &[u8]) -> Result<Self, String> {
+        let word = |i: usize| -> Result<usize, String> {
+            b.get(i * 8..i * 8 + 8)
+                .map(|w| u64::from_le_bytes(w.try_into().expect("8 bytes")) as usize)
+                .ok_or_else(|| "snapshot bytes: short header".to_string())
+        };
+        let (pos, nt, ns) = (word(0)?, word(1)?, word(2)?);
+        let body = &b[24..];
+        if nt.checked_add(ns).and_then(|n| n.checked_mul(4)) != Some(body.len()) {
+            return Err(format!(
+                "snapshot bytes: {} body bytes for {nt} + {ns} floats",
+                body.len()
+            ));
+        }
+        let mut f = body
+            .chunks_exact(4)
+            .map(|c| f32::from_bits(u32::from_le_bytes(c.try_into().expect("4 bytes"))));
+        Ok(Self {
+            pos,
+            tails: f.by_ref().take(nt).collect(),
+            states: f.collect(),
+        })
+    }
 }
 
 /// Memory the whole model needs with a KV cache of `max_pos` positions and prefill buffers for

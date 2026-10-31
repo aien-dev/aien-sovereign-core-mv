@@ -40,6 +40,7 @@ use crate::engine::{
     Engine, EngineError, FinishReason, GenerateOutcome, GenerateParams, GroupJob, TestSwitches,
 };
 use crate::omega_engine::{GpuLock, GPU_LOCK_PATH};
+use crate::q36_prefix::{PoolConfig, PoolSnap, PrefixPool};
 use crate::qwen38_engine::{
     admit_load, is_moe_dir, rss_bytes, CHIP_GREEDY_ENV, KEEP_FREE, LOAD_LOCK_WAIT, PREFILL_CHUNK,
     REQUEST_LOCK_WAIT,
@@ -67,6 +68,10 @@ fn env_usize(name: &str, default: usize) -> usize {
         Err(_) => default,
     }
 }
+
+/// Fewest tokens between two of the server's checkpoint marks the door keeps (each checkpoint
+/// holds a full DeltaNet state copy).
+pub const MARK_GAP: usize = 512;
 
 fn prompt_per_beat() -> Result<usize, String> {
     match std::env::var("AIEN_Q36_PROMPT_PER_BEAT") {
@@ -147,10 +152,30 @@ pub trait RowStep: Send + 'static {
         last.ok_or_else(|| "prefill_row: no tokens".to_string())
     }
     /// A host copy of a row's state.
-    type Snap: Default + Send;
+    type Snap: Default + PoolSnap;
     fn row_snapshot(&mut self, r: usize, snap: &mut Self::Snap) -> Result<(), String>;
-    /// Puts a copy back into row `r` (any row).
+    /// Puts a copy back into row `r` (any row; the K/V stays: see `row_kv_write`).
     fn row_restore(&mut self, r: usize, snap: &Self::Snap) -> Result<(), String>;
+    /// Values one position of a row's K/V holds (the shared prompt cache's copies).
+    fn row_kv_values(&self) -> usize;
+    /// Copies row `r`'s K/V at positions `from .. from + count` into `out`.
+    fn row_kv_read(
+        &mut self,
+        r: usize,
+        from: usize,
+        count: usize,
+        out: &mut Vec<u16>,
+    ) -> Result<(), String>;
+    /// Writes a `row_kv_read` copy into row `r` at positions `from .. from + count`.
+    fn row_kv_write(
+        &mut self,
+        r: usize,
+        from: usize,
+        count: usize,
+        data: &[u16],
+    ) -> Result<(), String>;
+    /// Moves row `r`'s next position (the prompt cache's position mutant only).
+    fn row_set_pos(&mut self, r: usize, pos: usize) -> Result<(), String>;
 }
 
 impl RowStep for Qwen38Omega {
@@ -180,12 +205,38 @@ impl RowStep for Qwen38Omega {
     fn row_restore(&mut self, r: usize, snap: &Qwen38Snapshot) -> Result<(), String> {
         Qwen38Omega::row_restore(self, r, snap)
     }
+    fn row_kv_values(&self) -> usize {
+        Qwen38Omega::row_kv_values(self)
+    }
+    fn row_kv_read(
+        &mut self,
+        r: usize,
+        from: usize,
+        count: usize,
+        out: &mut Vec<u16>,
+    ) -> Result<(), String> {
+        Qwen38Omega::row_kv_read(self, r, from, count, out)
+    }
+    fn row_kv_write(
+        &mut self,
+        r: usize,
+        from: usize,
+        count: usize,
+        data: &[u16],
+    ) -> Result<(), String> {
+        Qwen38Omega::row_kv_write(self, r, from, count, data)
+    }
+    fn row_set_pos(&mut self, r: usize, pos: usize) -> Result<(), String> {
+        Qwen38Omega::row_set_pos(self, r, pos)
+    }
 }
 
 /// A request handed to the scheduler. The channel carries a `Vec<Job>`: one request, or a group
 /// ([`Engine::generate_group`]) that is seated all in the same beat.
 struct Job {
     prompt: Vec<u32>,
+    /// Token positions worth a prompt cache checkpoint (tool boundaries, from the server).
+    marks: Vec<usize>,
     params: GenerateParams,
     /// The job's events go out tagged with its place in its group (0 for a single request).
     out: mpsc::SyncSender<(usize, Ev)>,
@@ -202,7 +253,14 @@ struct Job {
 
 /// The merge train's switches the batch door applies per request (`Engine::test_switches_honored`).
 #[cfg(feature = "aien-test-switches")]
-const TEST_SWITCHES_HONORED: &[&str] = &["stroke", "exact_head", "mutant", "row_swap"];
+const TEST_SWITCHES_HONORED: &[&str] = &[
+    "stroke",
+    "exact_head",
+    "mutant",
+    "row_swap",
+    "prefix_pool",
+    "prefix_mutant",
+];
 
 /// The per-step row switches of a request (`stroke`, `exact_head`, `mutant`).
 fn row_test(t: &TestSwitches) -> RowTest {
@@ -329,6 +387,10 @@ struct Row<T> {
     /// The tokens `snap` holds (empty: none).
     snap_tokens: Vec<u32>,
     snap: T,
+    /// A test mutant ran on this row (a graph mutant, or a pool restore one position off): its
+    /// state is off its history. It saves no checkpoint and is forgotten when its conversation
+    /// ends (the flag stays with the row through a test row swap).
+    tainted: bool,
 }
 
 /// One conversation in flight on the scheduler thread.
@@ -340,6 +402,8 @@ struct Active {
     reused: usize,
     /// Where to copy the state on the way in: the prompt's last turn header (`<|im_start|>`).
     snap_at: Option<usize>,
+    /// Positions (ascending) where the shared prompt cache saves the row's state on the way in.
+    cps: Vec<usize>,
     observer: SamplingObserver,
     emitted: usize,
     /// Logits after the last fed token, until sampled.
@@ -402,6 +466,11 @@ impl Qwen36BatchDoor {
         // The main graph is never stepped here: its own state is one 256-position pass.
         let need = need_bytes(&c, 256, PREFILL_CHUNK);
         let keep = keep_free()?;
+        // The prompt cache store binds the weights' digest: hashed beside the upload.
+        let ck_digest = std::env::var_os("AIEN_Q36_PREFIX_DIR").map(|_| {
+            let d = dir.to_path_buf();
+            std::thread::spawn(move || crate::kv_persist::checkpoint_digest(&d).map(|(h, _)| h))
+        });
         let mut t0 = Instant::now();
         let (lock, mut model) = admit_then_open(
             || GpuLock::acquire_queued_at(Path::new(GPU_LOCK_PATH), LOAD_LOCK_WAIT),
@@ -433,6 +502,7 @@ impl Qwen36BatchDoor {
         model.add_rows(slots, max_pos)?;
         let after = mem_available();
         let measured = before.saturating_sub(after);
+        let pool = open_pool(ck_digest, &mut model)?;
         drop(lock);
         eprintln!(
             "aien-serve-http: qwen36-batch engine ready in {:.1} s: context {max_context} tokens, {slots} rows, weights {:.2} GB resident, per-row state {:.1} MiB on paper, {:.1} MiB measured (MemAvailable {} MiB -> {} MiB), rss {:.2} GB, prompt tokens per beat {per_beat}",
@@ -444,13 +514,14 @@ impl Qwen36BatchDoor {
             after >> 20,
             rss_bytes() as f64 / 1e9,
         );
-        let mut door = Self::with_stepper(
+        let mut door = Self::with_stepper_pool(
             model,
             max_context,
             PathBuf::from(GPU_LOCK_PATH),
             REQUEST_LOCK_WAIT,
             per_beat,
             std::env::var(CHIP_GREEDY_ENV).as_deref() != Ok("0"),
+            pool,
         )?;
         door.slot_bytes_measured = measured;
         door.slot_bytes_on_paper = on_paper;
@@ -467,6 +538,30 @@ impl Qwen36BatchDoor {
         prompt_per_beat: usize,
         chip_greedy: bool,
     ) -> Result<Self, String> {
+        let off =
+            PoolConfig::from_lookup(|k| (k == "AIEN_Q36_PREFIX_POOL_GB").then(|| "0".into()))?;
+        Self::with_stepper_pool(
+            model,
+            max_context,
+            lock_path,
+            lock_wait,
+            prompt_per_beat,
+            chip_greedy,
+            PrefixPool::new(&off),
+        )
+    }
+
+    /// [`Self::with_stepper`] with the shared prompt cache `pool` (sc L375).
+    #[allow(clippy::too_many_arguments)]
+    pub fn with_stepper_pool<S: RowStep>(
+        model: S,
+        max_context: usize,
+        lock_path: PathBuf,
+        lock_wait: Duration,
+        prompt_per_beat: usize,
+        chip_greedy: bool,
+        pool: PrefixPool<S::Snap>,
+    ) -> Result<Self, String> {
         let slots = model.row_count();
         if slots == 0 {
             return Err("qwen36-batch: no rows".into());
@@ -479,6 +574,7 @@ impl Qwen36BatchDoor {
                     history: Vec::new(),
                     last_used: 0,
                     snap_tokens: Vec::new(),
+                    tainted: false,
                     snap: S::Snap::default(),
                 })
                 .collect(),
@@ -493,6 +589,7 @@ impl Qwen36BatchDoor {
             pf_min: env_usize("AIEN_Q36_PREFILL_MIN", Q36_PREFILL_MIN).max(1),
             chip_greedy,
             beat: 0,
+            pool,
         };
         std::thread::Builder::new()
             .name("qwen36-batch".into())
@@ -527,7 +624,35 @@ impl Engine for Qwen36BatchDoor {
         p: &GenerateParams,
         on_token: &mut dyn FnMut(u32) -> bool,
     ) -> Result<GenerateOutcome, EngineError> {
-        self.generate_test(prompt, p, TestSwitches::default(), on_token)
+        self.generate_marked(prompt, &[], p, &TestSwitches::default(), on_token)
+    }
+
+    fn generate_marked(
+        &self,
+        prompt: &[u32],
+        marks: &[usize],
+        p: &GenerateParams,
+        test: &TestSwitches,
+        on_token: &mut dyn FnMut(u32) -> bool,
+    ) -> Result<GenerateOutcome, EngineError> {
+        #[cfg(feature = "aien-test-switches")]
+        if let Some(bad) = test
+            .names()
+            .into_iter()
+            .find(|n| !TEST_SWITCHES_HONORED.contains(n))
+        {
+            return Err(EngineError::Failed(format!(
+                "aien_test.{bad} is not a switch of the batch door (honored: {TEST_SWITCHES_HONORED:?})"
+            )));
+        }
+        #[cfg(not(feature = "aien-test-switches"))]
+        if !test.is_empty() {
+            return Err(EngineError::Failed(format!(
+                "aien_test switches {:?}: this build has no test switches",
+                test.names()
+            )));
+        }
+        self.generate_test(prompt, marks, p, test.clone(), on_token)
     }
 
     #[cfg(feature = "aien-test-switches")]
@@ -543,16 +668,7 @@ impl Engine for Qwen36BatchDoor {
         test: &TestSwitches,
         on_token: &mut dyn FnMut(u32) -> bool,
     ) -> Result<GenerateOutcome, EngineError> {
-        if let Some(bad) = test
-            .names()
-            .into_iter()
-            .find(|n| !TEST_SWITCHES_HONORED.contains(n))
-        {
-            return Err(EngineError::Failed(format!(
-                "aien_test.{bad} is not a switch of the batch door (honored: {TEST_SWITCHES_HONORED:?})"
-            )));
-        }
-        self.generate_test(prompt, p, test.clone(), on_token)
+        self.generate_marked(prompt, &[], p, test, on_token)
     }
 
     fn generate_group(
@@ -565,16 +681,19 @@ impl Engine for Qwen36BatchDoor {
 }
 
 impl Qwen36BatchDoor {
-    /// The request path; `test` is empty on the served path (`Engine::generate`).
+    /// The request path; `test` is empty on the served path, `marks` are the server's
+    /// checkpoint hints (tool boundaries).
     fn generate_test(
         &self,
         prompt: &[u32],
+        marks: &[usize],
         p: &GenerateParams,
         test: TestSwitches,
         on_token: &mut dyn FnMut(u32) -> bool,
     ) -> Result<GenerateOutcome, EngineError> {
         let job = GroupJob {
             prompt: prompt.to_vec(),
+            marks: marks.to_vec(),
             params: p.clone(),
             cancel: None,
             test,
@@ -645,6 +764,7 @@ impl Qwen36BatchDoor {
             .enumerate()
             .map(|(i, j)| Job {
                 prompt: j.prompt.clone(),
+                marks: j.marks.clone(),
                 params: j.params.clone(),
                 out: otx.clone(),
                 tag: i,
@@ -687,6 +807,8 @@ struct Scheduler<S: RowStep> {
     /// Greedy replies take the graph's token (`AIEN_SERVE_CHIP_GREEDY=0` turns it off).
     chip_greedy: bool,
     beat: u64,
+    /// The shared prompt cache (sc L375).
+    pool: PrefixPool<S::Snap>,
 }
 
 /// Totals over one busy spell (first arrival to last departure).
@@ -796,17 +918,23 @@ impl<S: RowStep> Scheduler<S> {
             let mut pf_err: Option<String> = None;
             if self.pf_chunk > 0 {
                 for (k, a) in active.iter_mut().enumerate() {
-                    if !a.prefilling()
-                        || a.snap_at == Some(a.fed)
-                        || !row_test(&a.job.test).is_plain()
-                    {
+                    if !a.prefilling() || !row_test(&a.job.test).is_plain() {
+                        continue;
+                    }
+                    // The prompt cache's checkpoint here (L375); chunks stop at the next one.
+                    if a.cps.first() == Some(&a.fed) {
+                        a.cps.remove(0);
+                        self.save_checkpoint(a.row, &a.job.prompt[..a.fed]);
+                    }
+                    if a.snap_at == Some(a.fed) {
                         continue;
                     }
                     let plen = a.job.prompt.len();
-                    let stop = match a.snap_at {
-                        Some(s) if s > a.fed => s,
-                        _ => plen,
-                    };
+                    let stop = [a.snap_at, a.cps.first().copied()]
+                        .into_iter()
+                        .flatten()
+                        .filter(|&s| s > a.fed)
+                        .fold(plen, usize::min);
                     let n = (stop - a.fed).min(self.pf_chunk);
                     if n < self.pf_min {
                         continue;
@@ -853,6 +981,13 @@ impl<S: RowStep> Scheduler<S> {
             // One beat: every decoding row feeds its sampled token in the first step; the rows
             // still feeding their prompt feed up to `per_beat` prompt tokens, one per step.
             for sub in 0..self.per_beat {
+                // The shared prompt cache's checkpoints, before the token at that position goes in.
+                for a in active.iter_mut() {
+                    if a.prefilling() && a.cps.first() == Some(&a.fed) {
+                        a.cps.remove(0);
+                        self.save_checkpoint(a.row, &a.job.prompt[..a.fed]);
+                    }
+                }
                 // Each joining prompt's state copy at its last turn header, before that token goes in.
                 for a in active.iter_mut() {
                     if a.prefilling() && a.snap_at == Some(a.fed) {
@@ -952,15 +1087,18 @@ impl<S: RowStep> Scheduler<S> {
         }
     }
 
-    /// Seats the request on a free row: the longest state some free row holds that the prompt
-    /// continues (its live tokens, or its copy at its last turn header), else the least recently
-    /// used row, emptied. The single door's reuse rule ([`aien_inference_abi::qwen38_omega::plan_reuse`]), per row.
+    /// Seats the request on a free row: the longest state the prompt continues among the free
+    /// rows (live tokens, or the copy at the last turn header) and the shared prompt cache (sc
+    /// L375), else the least recently used row, emptied. The single door's reuse rule
+    /// ([`aien_inference_abi::qwen38_omega::plan_reuse`]) per row, plus the pool.
     fn admit(&mut self, job: Job, active: &mut Vec<Active>) {
         let plen = job.prompt.len();
         let fits = |s: &[u32]| !s.is_empty() && s.len() < plen && job.prompt.starts_with(s);
         // (index in `free`, tokens reused, from the copy)
         let mut best: Option<(usize, usize, bool)> = None;
-        for (i, &r) in self.free.iter().enumerate() {
+        // The merge train's `prefix_pool: false`: a cold read, nothing reused or saved.
+        let cold = job.test.prefix_pool == Some(false);
+        for (i, &r) in self.free.iter().enumerate().filter(|_| !cold) {
             let row = &self.rows[r];
             for (s, from_snap) in [(&row.history, false), (&row.snap_tokens, true)] {
                 if fits(s) && best.is_none_or(|(_, n, _)| s.len() > n) {
@@ -968,21 +1106,52 @@ impl<S: RowStep> Scheduler<S> {
                 }
             }
         }
-        let (i, reused, from_snap) = best.unwrap_or_else(|| {
-            let i = (0..self.free.len())
-                .min_by_key(|&i| self.rows[self.free[i]].last_used)
-                .expect("admit is called with a free row");
-            (i, 0, false)
-        });
+        // The pool, when it reaches further than every free row.
+        let from_pool = if self.pool.on() && !cold {
+            let hit = self
+                .pool
+                .longest(&job.prompt, plen - 1)
+                .filter(|&(_, n)| best.is_none_or(|(_, b, _)| n > b));
+            self.pool.note_lookup(hit.is_some());
+            hit
+        } else {
+            None
+        };
+        let lru = (0..self.free.len())
+            .min_by_key(|&i| self.rows[self.free[i]].last_used)
+            .expect("admit is called with a free row");
+        let (i, mut reused, from_snap) = match (from_pool, best) {
+            (Some((_, n)), _) => (lru, n, false),
+            (None, Some(b)) => b,
+            (None, None) => (lru, 0, false),
+        };
         let row = self.free.swap_remove(i);
-        let r = {
+        let mut from_pool = from_pool;
+        let r = if let Some((id, n)) = from_pool {
+            let off = job.test.prefix_mutant == Some(true);
+            match self.restore_from_pool(row, id, &job.prompt[..n], off) {
+                Ok(true) => Ok(()),
+                Ok(false) => {
+                    // Refused before any write: the row reads the whole prompt cold.
+                    from_pool = None;
+                    reused = 0;
+                    let rr = &mut self.rows[row];
+                    rr.tainted = false;
+                    self.model.row_reset(row)
+                }
+                Err(e) => Err(e),
+            }
+        } else {
             let rr = &mut self.rows[row];
             if from_snap {
                 self.model
                     .row_restore(row, &rr.snap)
                     .map(|()| rr.history = rr.snap_tokens.clone())
             } else if reused == 0 {
+                // The new prompt rewrites the K/V the row's own copy relies on.
                 rr.history.clear();
+                rr.snap_tokens.clear();
+                rr.tainted = false;
                 self.model.row_reset(row)
             } else {
                 Ok(())
@@ -1002,13 +1171,26 @@ impl<S: RowStep> Scheduler<S> {
             .iter()
             .rposition(|&t| t == IM_START)
             .filter(|&k| k > 0 && k >= reused && self.rows[row].snap_tokens[..] != job.prompt[..k]);
+        let cps = self.checkpoints(&job, reused);
         eprintln!(
-            "aien-serve-http: qwen36-batch: join: prompt {plen} tok, reuse {reused} tok ({}, row {row}), queued {} ms, now {} rows",
-            if reused == 0 { "cold" } else if from_snap { "snapshot" } else { "live" },
+            "aien-serve-http: qwen36-batch: join: prompt {plen} tok, reuse {reused} tok ({}, row {row}), {} cache checkpoints, queued {} ms, now {} rows",
+            if from_pool.is_some() {
+                "prompt cache"
+            } else if reused == 0 {
+                "cold"
+            } else if from_snap {
+                "snapshot"
+            } else {
+                "live"
+            },
+            cps.len(),
             job.t_queued.elapsed().as_millis(),
             active.len() + 1,
         );
         let observer = SamplingObserver::new(&job.params);
+        if job.test.mutant.is_some_and(|m| m != 0) {
+            self.rows[row].tainted = true;
+        }
         let job_swap = job.test.row_swap.filter(|&k| k >= 1);
         let chip_greedy = self.chip_greedy && observer.is_greedy();
         active.push(Active {
@@ -1017,6 +1199,7 @@ impl<S: RowStep> Scheduler<S> {
             fed: reused,
             reused,
             snap_at,
+            cps,
             observer,
             emitted: 0,
             logits: None,
@@ -1059,6 +1242,145 @@ impl<S: RowStep> Scheduler<S> {
             eprintln!(
                 "aien-serve-http: qwen36-batch: TEST ROW SWAP (aien_test.row_swap {k}): rows {ri} and {rj} trade conversations (negative control; never serve this)"
             );
+        }
+    }
+
+    /// Copies pool node `id` (the state after `tokens`) into `row`: the K/V pieces root first,
+    /// then the DeltaNet state and position. `Ok(false)`: the pool refused the node (stale tag,
+    /// other tokens, a K/V gap or length, a state at another position) before anything was
+    /// written; the caller reads the prompt cold. On an error the row's state is unknown (the
+    /// caller empties its bookkeeping; the next cold join resets it). `off_by_one` (the merge
+    /// train's `prefix_mutant`, or `AIEN_Q36_PREFIX_MUTANT` for the whole door): the gate's
+    /// control, the row continues one position early.
+    fn restore_from_pool(
+        &mut self,
+        row: usize,
+        id: u64,
+        tokens: &[u32],
+        off_by_one: bool,
+    ) -> Result<bool, String> {
+        let off_by_one = off_by_one || self.pool.mutant();
+        let t = Instant::now();
+        let rr = &mut self.rows[row];
+        rr.history.clear();
+        rr.snap_tokens.clear(); // the K/V below rewrites what the row's own copy relies on
+        let vals = self.model.row_kv_values();
+        let rs = match self.pool.restore(id, tokens, vals) {
+            Ok(rs) => rs,
+            Err(why) => {
+                eprintln!(
+                    "aien-serve-http: qwen36-batch: prompt cache restore refused ({} tok, row {row}): {why}; reading cold",
+                    tokens.len()
+                );
+                return Ok(false);
+            }
+        };
+        let resident = rs.resident;
+        let mut bytes = 0usize;
+        for &(from, kv) in &rs.kv {
+            let count = kv.len().checked_div(vals).unwrap_or(0);
+            self.model.row_kv_write(row, from, count, kv)?;
+            bytes += kv.len() * 2;
+        }
+        self.model.row_restore(row, rs.snap)?;
+        bytes += rs.snap.host_bytes();
+        if off_by_one {
+            self.rows[row].tainted = true;
+            self.model.row_set_pos(row, tokens.len() - 1)?;
+        }
+        self.rows[row].history = tokens.to_vec();
+        eprintln!(
+            "aien-serve-http: qwen36-batch: prompt cache restore: {} tok into row {row}, {:.1} MiB in {} ms, conversation resident {:.1} MiB{}",
+            tokens.len(),
+            bytes as f64 / (1u64 << 20) as f64,
+            t.elapsed().as_millis(),
+            resident as f64 / (1u64 << 20) as f64,
+            if off_by_one { " (POSITION MUTANT)" } else { "" },
+        );
+        Ok(true)
+    }
+
+    /// Where the pool saves this prompt's state on the way in (ascending, past `reused`, before
+    /// the last prompt token): every `every` tokens, the server's marks (tool boundaries, at
+    /// least `MARK_GAP` apart), the end of the first turn, the last turn header, and where the
+    /// prompt leaves the pool's longest match (the next prompt that changes there restores up to
+    /// it: coordinator 12:10Z, diff on arrival).
+    /// Only a row on the served path saves: none with a merge-train switch other than
+    /// `prefix_pool: true` (a mutant's state must never reach another conversation).
+    fn checkpoints(&self, job: &Job, reused: usize) -> Vec<usize> {
+        let mut served = job.test.clone();
+        served.prefix_pool = served.prefix_pool.filter(|&on| !on);
+        if !self.pool.on() || !served.is_empty() {
+            return Vec::new();
+        }
+        let (p, plen) = (&job.prompt, job.prompt.len());
+        let every = self.pool.every();
+        let mut v: Vec<usize> = (1..=plen / every).map(|k| k * every).collect();
+        let mut last_mark = 0usize;
+        for &m in &job.marks {
+            if m >= last_mark + MARK_GAP {
+                v.push(m);
+                last_mark = m;
+            }
+        }
+        let mut heads = p
+            .iter()
+            .enumerate()
+            .filter(|&(k, &t)| k > 0 && t == IM_START)
+            .map(|(k, _)| k);
+        v.extend(heads.next()); // the end of the first turn
+        v.extend(p.iter().rposition(|&t| t == IM_START).filter(|&k| k > 0));
+        v.extend(self.pool.divergence(p));
+        v.retain(|&x| x > reused && x < plen);
+        v.sort_unstable();
+        v.dedup();
+        v
+    }
+
+    /// Saves `row`'s state (it holds exactly `tokens`) into the pool: the K/V since the deepest
+    /// node `tokens` continues, the DeltaNet state and position.
+    fn save_checkpoint(&mut self, row: usize, tokens: &[u32]) {
+        if self.rows[row].tainted {
+            return;
+        }
+        if self.pool.touch(tokens) {
+            return;
+        }
+        let t = Instant::now();
+        let (parent, from) = match self.pool.parent_for(tokens) {
+            Some((id, n)) => (Some(id), n),
+            None => (None, 0),
+        };
+        let mut kv = Vec::new();
+        let mut snap = S::Snap::default();
+        let r = self
+            .model
+            .row_kv_read(row, from, tokens.len() - from, &mut kv)
+            .and_then(|()| self.model.row_snapshot(row, &mut snap));
+        match r {
+            Ok(()) => {
+                let bytes = kv.len() * 2 + snap.host_bytes();
+                let kept = self.pool.insert(tokens.to_vec(), parent, kv, snap);
+                let c = self.pool.counters();
+                let (cn, cb) = self.pool.resident(tokens).unwrap_or((0, 0));
+                eprintln!(
+                    "aien-serve-http: qwen36-batch: prompt cache save: {} tok (K/V from {from}) from row {row}, {:.1} MiB in {} ms{}; conversation resident {cn} nodes {:.1} MiB; pool {} nodes {:.1} MiB of {:.1} GiB, {} evicted, {} refused",
+                    tokens.len(),
+                    bytes as f64 / (1u64 << 20) as f64,
+                    t.elapsed().as_millis(),
+                    if kept { "" } else { ", over budget, dropped" },
+                    cb as f64 / (1u64 << 20) as f64,
+                    c.nodes,
+                    c.bytes as f64 / (1u64 << 20) as f64,
+                    self.pool.budget() as f64 / (1u64 << 30) as f64,
+                    c.evicted,
+                    c.refused,
+                );
+            }
+            Err(e) => eprintln!(
+                "aien-serve-http: qwen36-batch: prompt cache save at {} tok from row {row} failed: {e}",
+                tokens.len()
+            ),
         }
     }
 
@@ -1131,6 +1453,13 @@ impl<S: RowStep> Scheduler<S> {
             row.history.clear();
             row.snap_tokens.clear();
         }
+        if row.tainted {
+            // A test mutant left this row's state (and its copy) off its history: the next
+            // conversation on the row starts cold.
+            row.history.clear();
+            row.snap_tokens.clear();
+            row.tainted = false;
+        }
         let ev = match err {
             Some(e) => Ev::Failed(e),
             None => Ev::Done(GenerateOutcome {
@@ -1148,3 +1477,83 @@ impl<S: RowStep> Scheduler<S> {
 
 #[cfg(test)]
 mod tests;
+
+/// The shared prompt cache from the environment (sc L375), with its sealed store loaded (before
+/// the door takes requests) when `AIEN_Q36_PREFIX_DIR` is set. A store that cannot open, or any
+/// mutant or test switch, leaves the pool in memory only. Runs under the load lock (the state
+/// probe reads row 0 on the chip).
+fn open_pool(
+    ck_digest: Option<std::thread::JoinHandle<Result<[u8; 32], String>>>,
+    model: &mut Qwen38Omega,
+) -> Result<PrefixPool<Qwen38Snapshot>, String> {
+    use crate::q36_prefix::{namespace, numeric_env};
+    let cfg = PoolConfig::from_env()?;
+    let mut pool = PrefixPool::new(&cfg);
+    if !pool.on() {
+        eprintln!(
+            "aien-serve-http: qwen36-batch: prompt cache off (needs AIEN_Q36_PREFIX=1 and AIEN_Q36_PREFIX_POOL_GB > 0)"
+        );
+        return Ok(pool);
+    }
+    let kv_values = model.row_kv_values();
+    let mut probe = Qwen38Snapshot::default();
+    model.row_snapshot(0, &mut probe)?;
+    let snap_bytes = probe.bytes();
+    let env = numeric_env(std::env::vars());
+    let lib = aien_omega_gpu::native_identity().archive_sha256;
+    // In memory the weights are this process's own; the tag binds the chip library, the state
+    // shape and the numeric switches (a node of another tag is refused at restore).
+    pool.bind_tag(namespace(&[0; 32], lib, kv_values, snap_bytes, &env));
+    eprintln!(
+        "aien-serve-http: qwen36-batch: prompt cache on: budget {:.1} GiB, checkpoint every {} tok, K/V {} B per token, state {:.1} MiB per checkpoint{}",
+        cfg.budget as f64 / (1u64 << 30) as f64,
+        cfg.every,
+        kv_values * 2,
+        snap_bytes as f64 / (1u64 << 20) as f64,
+        if cfg.mutant { ", POSITION MUTANT" } else { "" },
+    );
+    let Some(sdir) = cfg.dir.as_ref() else {
+        return Ok(pool);
+    };
+    let off = |why: String| {
+        eprintln!(
+            "aien-serve-http: qwen36-batch: prompt cache store {} off: {why}; the pool stays in memory",
+            sdir.display()
+        );
+    };
+    if cfg.mutant
+        || env
+            .iter()
+            .any(|(k, _)| k.contains("MUTANT") || k.contains("_TEST_"))
+    {
+        off("a mutant or test switch is set (its states are never stored)".into());
+        return Ok(pool);
+    }
+    if lib.is_empty() {
+        off("the linked libomega_gpu.a has no sha256".into());
+        return Ok(pool);
+    }
+    let key = match aien_kv_store::seal::SealKey::take_from_process_env() {
+        Ok(k) => k,
+        Err(e) => {
+            off(format!("{e}"));
+            return Ok(pool);
+        }
+    };
+    let ck = match ck_digest.map(|h| h.join()) {
+        Some(Ok(Ok(h))) => h,
+        Some(Ok(Err(e))) => {
+            off(format!("checkpoint digest: {e}"));
+            return Ok(pool);
+        }
+        _ => {
+            off("checkpoint digest thread failed".into());
+            return Ok(pool);
+        }
+    };
+    let ns = namespace(&ck, lib, kv_values, snap_bytes, &env);
+    if let Err(e) = pool.open_store(sdir, key, ns, kv_values, |s| s.bytes() == snap_bytes) {
+        off(e);
+    }
+    Ok(pool)
+}
