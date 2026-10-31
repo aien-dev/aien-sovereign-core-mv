@@ -14,9 +14,13 @@
 //! whose prompt starts with all of a free row's tokens continues that row (only the new tail is
 //! fed); otherwise it takes the least recently used free row, emptied.
 //!
-//! Today `step_rows` runs the rows' one-row graphs in turn (stage 1: the same chip work as one
-//! request at a time, now with no `server_busy` until every slot is taken); L312's multi-row step
-//! (one weight read per layer for all rows) plugs in behind the same call.
+//! `step_rows` (aien-inference-abi `qwen38_omega/rows.rs`) runs L312's strokes: a beat that feeds
+//! two rows or more goes through one stroke graph in chunks of up to `MAX_HEADS` (8) rows, its head
+//! slots re-pointed at each chunk's row states; by default (batch v2) every layer is recorded for
+//! all heads at once, one weight read per layer, and the bf16 lm_head runs once per group of heads.
+//! A lone row, or a chunk of one, takes that row's own one-row graph with the exact two-pass head.
+//! `AIEN_Q36_STROKE_V2=0` keeps strokes on v1; `AIEN_Q36_STROKE=0` runs the rows' one-row graphs in
+//! turn (stage 1).
 //!
 //! The server hands out `slots` permits ([`Engine::concurrency`]); the `slots + 1`th request gets
 //! 503 `server_busy`. Chip etiquette: `/tmp/aien-gb10.lock` is taken when the first conversation

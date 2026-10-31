@@ -58,23 +58,32 @@ fn ids(v: &Value, k: &str) -> Result<Vec<u32>, String> {
 }
 
 /// What the lm_head byte count assumes, printed on the lm_head line of every report.
-const LM_HEAD_BASIS: &str = "fp8b head: 1 B/weight + bf16 block scales";
-
-/// Bytes the lm_head reads per token. The q36 engine runs the FP8 block-scaled copy of the head
-/// (1 B per weight plus one bf16 scale per 128 x 128 block) unless the exact two-pass head is on;
-/// then it reads the bf16 head (2 B per weight). q36_levers never turns the exact head on.
-fn lm_head_bytes(vocab: usize, hidden: usize, exact_two_pass: bool) -> f64 {
-    let (v, h) = (vocab as f64, hidden as f64);
-    if exact_two_pass {
-        v * h * 2.0
+fn lm_head_basis(exact_head: bool) -> &'static str {
+    if exact_head {
+        "exact two-pass head: fp8b screen 1 B/weight + bf16 block scales, 4 f32 vocab vectors; candidate rows not counted"
     } else {
-        v * h + (v / 128.0).ceil() * (h / 128.0).ceil() * 2.0
+        "plain head: bf16 2 B/weight"
+    }
+}
+
+/// Bytes the lm_head launches read per token. The 35B uploads lm_head as bf16 (qwen38_omega/moe.rs).
+/// With the exact two-pass head on (HUM L314, the default unless `AIEN_Q36_EXACT_HEAD=0`) the final
+/// step reads the fp8b screen (1 B per weight plus one bf16 scale per 128 x 128 block), its XBOUND
+/// glue reads s and c and writes lo and hi (f32 [vocab] each), and the bf16 MASK gemv reads only the
+/// candidate rows (data dependent, a few rows of 4 KiB, left out). Off, the plain gemv reads the
+/// whole bf16 head (2 B per weight). From omega_gpu_q36_graph.c record_head_final.
+fn lm_head_bytes(vocab: usize, hidden: usize, exact_head: bool) -> f64 {
+    let (v, h) = (vocab as f64, hidden as f64);
+    if exact_head {
+        v * h + (v / 128.0).ceil() * (h / 128.0).ceil() * 2.0 + 4.0 * v * 4.0
+    } else {
+        v * h * 2.0
     }
 }
 
 /// Bytes one launch kind moves per token at position `pos` (weights, state, KV; glue kernels
 /// counted as their inputs plus outputs in f32). From the shapes in omega_gpu_q36_graph.h.
-fn kind_bytes(c: &Qwen38Config, kind: &str, pos: usize) -> f64 {
+fn kind_bytes(c: &Qwen38Config, kind: &str, pos: usize, exact_head: bool) -> f64 {
     let h = c.hidden as f64;
     let gdn = c.full_attention.iter().filter(|a| !**a).count() as f64;
     let attn = c.layers as f64 - gdn;
@@ -90,7 +99,7 @@ fn kind_bytes(c: &Qwen38Config, kind: &str, pos: usize) -> f64 {
         "router" => c.layers as f64 * q36::EXPERT_ROWS as f64 * h * 2.0,
         "gate_up" => c.layers as f64 * q36::GROUPS as f64 * 2.0 * q36::EXPERT_INTER as f64 * h,
         "down" => c.layers as f64 * q36::GROUPS as f64 * h * q36::EXPERT_INTER as f64,
-        "lm_head" => lm_head_bytes(c.vocab, c.hidden, false),
+        "lm_head" => lm_head_bytes(c.vocab, c.hidden, exact_head),
         _ => 0.0,
     }
 }
@@ -215,11 +224,16 @@ fn run() -> Result<bool, String> {
                 span as f64 / 1e3,
                 st.chip_ns as f64 / 1e3
             );
+            let exact_head = m.exact_head_active();
             for (name, ns, n) in &per {
-                let b = kind_bytes(&c, name, pos);
+                let b = kind_bytes(&c, name, pos, exact_head);
                 byte_total += b;
                 let byte_us = b / BW * 1e6;
-                let basis = if name == "lm_head" { format!(" [{LM_HEAD_BASIS}]") } else { String::new() };
+                let basis = if name == "lm_head" {
+                    format!(" [{}]", lm_head_basis(exact_head))
+                } else {
+                    String::new()
+                };
                 eprintln!(
                     "  {name:>8}: {n:4} launches {:9.1} us ({:5.1}%), {:8.2} MB, byte time {:8.1} us, gap {:8.1} us, {:6.2} us/launch{basis}",
                     *ns as f64 / 1e3,
@@ -231,7 +245,7 @@ fn run() -> Result<bool, String> {
                 );
                 let mut row = json!({"kind": name, "launches": n, "ns": ns, "bytes": b, "byte_ns": b / BW * 1e9});
                 if name == "lm_head" {
-                    row["bytes_basis"] = json!(LM_HEAD_BASIS);
+                    row["bytes_basis"] = json!(lm_head_basis(exact_head));
                 }
                 rows.push(row);
             }
@@ -305,17 +319,24 @@ fn main() {
 mod tests {
     use super::lm_head_bytes;
 
-    // Qwen3.6-35B-A3B: vocab 248,320, hidden 2048 (config.json).
+    // Qwen3.6-35B-A3B: vocab 248,320, hidden 2048 (config.json); lm_head.weight BF16 [248320, 2048],
+    // 1,017,118,720 B in outside.safetensors.
     #[test]
-    fn lm_head_counts_the_fp8_head_by_default() {
-        // 248320 * 2048 weights at 1 B + (248320/128) x (2048/128) = 1940 x 16 blocks at 2 B.
-        let fp8b = 248_320.0 * 2048.0 + 1940.0 * 16.0 * 2.0;
-        assert_eq!(lm_head_bytes(248_320, 2048, false), fp8b);
-        assert_eq!(fp8b, 508_559_360.0 + 62_080.0);
+    fn lm_head_counts_the_fp8b_screen_with_the_exact_head() {
+        // 248320 * 2048 weights at 1 B + (248320/128) x (2048/128) = 1940 x 16 blocks at 2 B
+        // + s, c, lo, hi f32 [248320].
+        let exact = 248_320.0 * 2048.0 + 1940.0 * 16.0 * 2.0 + 4.0 * 248_320.0 * 4.0;
+        assert_eq!(lm_head_bytes(248_320, 2048, true), exact);
+        assert_eq!(exact, 508_559_360.0 + 62_080.0 + 3_973_120.0);
     }
 
     #[test]
-    fn lm_head_counts_the_bf16_head_for_the_exact_two_pass() {
-        assert_eq!(lm_head_bytes(248_320, 2048, true), 248_320.0 * 2048.0 * 2.0);
+    fn lm_head_counts_the_bf16_head_without_the_exact_head() {
+        // The checkpoint tensor's size: data_offsets [0, 1017118720].
+        assert_eq!(lm_head_bytes(248_320, 2048, false), 1_017_118_720.0);
+        assert_ne!(
+            lm_head_bytes(248_320, 2048, false),
+            lm_head_bytes(248_320, 2048, true)
+        );
     }
 }
