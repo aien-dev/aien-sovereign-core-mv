@@ -702,7 +702,7 @@ fn exec_write_file(
                 lifecycle: "permanent".to_string(),
             };
             let crumb = load_or_init_dir_crumb(parent, Some(parent_purpose));
-            crumb_error = save_dir_crumb(&crumb).err();
+            crumb_error = save_dir_crumb(parent, &crumb).err();
         }
     }
 
@@ -870,7 +870,7 @@ fn exec_crumb_tool(args: &Value) -> (Value, bool) {
             };
             let mut crumb = load_or_init_dir_crumb(p_dir, Some(purpose_obj));
             crumb.description = purpose_str.to_string();
-            if let Err(err) = save_dir_crumb(&crumb) {
+            if let Err(err) = save_dir_crumb(p_dir, &crumb) {
                 return (json!({"error": err}), false);
             }
             (
@@ -920,7 +920,7 @@ fn exec_create_dir(path: &str, purpose: &str, lifecycle: Option<&str>) -> (Value
 
     let mut crumb = load_or_init_dir_crumb(p, Some(purpose_obj));
     crumb.description = purpose.to_string();
-    let crumb_error = save_dir_crumb(&crumb).err();
+    let crumb_error = save_dir_crumb(p, &crumb).err();
 
     // Record scent mark into crumb
     record_directory_crumb(
