@@ -46,6 +46,9 @@ use crate::resident::transpose_bf16_for_upload;
 mod forward_pass;
 pub mod w8a8_control;
 mod whole_prompt;
+pub use whole_prompt::{
+    estimate_growth, PrefillGrowth, WholePromptFootprint, DEFAULT_CHUNK, SCRATCH_BYTES_PER_TOKEN,
+};
 
 /// The one-list decode token (OWN-30B L2 cut 2), off unless `OWN30B_DECODE_GRAPH=1`.
 #[path = "qwen3_moe_omega_dgraph.rs"]
@@ -3344,6 +3347,12 @@ pub struct Qwen3MoeOmegaEngine {
     history: Vec<u32>,
     /// Whole-prompt prefill driver (OFF = None; `set_whole_prompt`). See `whole_prompt.rs`.
     whole_prompt: Option<Box<whole_prompt::EngineWholePrompt>>,
+    /// Tokens per whole-prompt pass (0 = the whole prompt at once). Bounds the prompt-sized
+    /// scratch the driver keeps resident. See `whole_prompt::DEFAULT_CHUNK`.
+    whole_prompt_chunk: usize,
+    /// A whole-prompt pass has run: omega's per-layer KV mirror (one cache-sized copy of the KV,
+    /// allocated by the first pass and kept) exists.
+    whole_prompt_mirror_live: bool,
     /// The host head (ADR 0004 adapter): the last forward call's final hidden state, unread.
     /// `None` once read or forgotten. Empty on the decode graph, whose head is its pending token.
     head_hidden: Option<Vec<f32>>,
@@ -3380,6 +3389,8 @@ impl Qwen3MoeOmegaEngine {
             pos: 0,
             history: Vec::new(),
             whole_prompt: None,
+            whole_prompt_chunk: whole_prompt::DEFAULT_CHUNK,
+            whole_prompt_mirror_live: false,
             head_hidden: None,
             head_logits: Vec::new(),
             kv_lent: false,

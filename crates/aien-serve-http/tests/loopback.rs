@@ -511,6 +511,38 @@ fn prompt_that_fills_the_context_is_refused() {
 }
 
 #[test]
+fn prompt_the_memory_cannot_hold_is_refused_with_413_and_the_limit() {
+    let why = "prompt of 66000 tokens needs 13.9 GB more host memory but only 9.0 GB is available; send at most about 0 tokens now";
+    let srv = start(stub("x").with_admit_refusal(why), ServerConfig::default());
+    let r = chat(srv.addr, PROMPT);
+    assert_eq!(r.status, 413, "{}", r.body);
+    let j = json(&r);
+    assert_eq!(j["error"]["code"], "prompt_exceeds_memory_budget");
+    assert_eq!(j["error"]["message"], why);
+}
+
+/// The engine's own admission (omega door: `generate` re-checks memory after the server's
+/// `admit` passed) refusing is the same 413, streaming included (nothing has been sent yet).
+#[test]
+fn a_memory_refusal_inside_the_engine_is_the_same_413() {
+    let why = "prompt of 66000 tokens needs 13.9 GB more host memory but only 9.0 GB is available; send at most about 0 tokens now";
+    let srv = start(
+        stub("x").with_generate_refusal(why),
+        ServerConfig::default(),
+    );
+    for body in [
+        PROMPT,
+        r#"{"messages":[{"role":"user","content":"hi"}],"stream":true}"#,
+    ] {
+        let r = chat(srv.addr, body);
+        assert_eq!(r.status, 413, "{body}: {}", r.body);
+        let j = json(&r);
+        assert_eq!(j["error"]["code"], "prompt_exceeds_memory_budget");
+        assert_eq!(j["error"]["message"], why);
+    }
+}
+
+#[test]
 fn non_loopback_bind_is_refused() {
     let rt = tokio::runtime::Runtime::new().unwrap();
     let cfg = ServerConfig {
