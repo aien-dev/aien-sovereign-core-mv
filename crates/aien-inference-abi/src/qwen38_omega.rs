@@ -49,7 +49,7 @@ mod prefill;
 mod rows;
 pub use rows::{RowFeed, RowOut, RowTest};
 mod session;
-pub use prefill::PrefillStats;
+pub use prefill::{q36_prefill_chunk, PrefillStats};
 pub use session::{plan_reuse, FeedStats, Qwen38Session, Reuse, IM_START};
 
 use crate::qwen38::{read_bf16_words, read_matrix, read_vec, text_prefix, Matrix, Qwen38Config};

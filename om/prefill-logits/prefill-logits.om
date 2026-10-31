@@ -1,0 +1,369 @@
+note om/prefill-logits/prefill-logits.om: G1 last-token logits judge for Qwen3.6-35B prefill (P-DRA-4).
+note Usage: prefill-logits A.f32 B.f32. Each file is the last prompt token's logits as written by
+note qwen36_prefill_bench: 248320 little-endian IEEE binary32 values, exactly 993280 bytes.
+note A is the reference arm (legacy GEMV prefill, chunk 128), B the candidate arm (env-gated new path).
+note Written tolerance (om/prefill-logits/TOLERANCE.md): PASS iff
+note   every value of A and B is finite, and
+note   top-1 of A equals top-1 of B (lowest id wins a tie), and
+note   max over the vocabulary of |A[i] - B[i]| (computed in binary64) is at most TAU = 1.0 logit.
+note Reported, not judged: A's top-1 minus top-2 margin, the RMS difference, the top-16 id overlap.
+note Values printed with suffix _u are micro-logits (value * 1e6, truncated, capped at 1e12).
+note Exit 0 PASS, 1 FAIL, 2 usage, 3 io (missing file, not regular, size not 993280, short read).
+note Build: { printf 'om2\n'; cat om/prefill-logits/prefill-logits.om; } | "$AIEN_OMC" > prefill-logits
+
+const nv ulong 248320
+const nbyte ulong 993280
+const kop ulong 0
+const knfa ulong 1
+const knfb ulong 2
+const kmi ulong 3
+const kmx ulong 4
+const kss ulong 5
+const kca ulong 6
+
+global ga uchar 8192
+global gas ulong 4
+global gal ulong 4
+global gpth uchar 4352
+global gstb uchar 128
+global la uchar 993280
+global lb uchar 993280
+global tk ulong 32
+global gst ulong 16
+global gob uchar 2048
+global gdg uchar 32
+
+text tref "prefill-logits error "
+text tusage "usage: prefill-logits A.f32 B.f32"
+text tio "io"
+text tnreg "not a regular file"
+text tsize "size is not 993280 bytes"
+text thead "prefill-logits verdict "
+text tpass "PASS"
+text tfail "FAIL"
+text o1 "top1_a"
+text o2 "top1_b"
+text o3 "margin_a_u"
+text o4 "max_abs_d_u"
+text o5 "max_at"
+text o6 "rms_d_u"
+text o7 "top16_overlap"
+text o8 "nonfinite_a"
+text o9 "nonfinite_b"
+text o10 "tau_u"
+text o11 "flip_gap_a_u"
+
+note TAU in logits; the justification and the Wolfram figures are in TOLERANCE.md
+fn pl_tau to f64
+ret 1.0f64
+end
+
+note BAND in logits: a top-1 flip is allowed when A's own logit gap between its top-1 and B's top-1 is
+note below it (the house MARGIN_MIN, qwen38_omega_full.rs, written 2026-10-21, never from the run)
+fn pl_band to f64
+ret 0.1f64
+end
+
+note ======== output ========
+
+fn pl_dec v ulong to ulong
+n = ulong 0
+x = v
+while true bound 25
+put gdg n add 48 uchar rem x 10
+n = add n 1
+x = div x 10
+if eq x 0
+break
+end
+end
+ret n
+end
+
+fn pl_ob c uchar to void
+p = get gst kop
+if lt p len gob
+put gob p c
+put gst kop add p 1
+end
+end
+
+fn pl_otx t view uchar * to void
+for i ulong len t
+pl_ob get t i
+end
+end
+
+fn pl_ou v ulong to void
+n = pl_dec v
+for i ulong n
+pl_ob get gdg sub sub n i 1
+end
+end
+
+fn pl_kv t view uchar * v ulong to void
+pl_ob 32
+pl_otx t
+pl_ob 32
+pl_ou v
+end
+
+note pl_mu: |v| as micro-logits, truncated toward zero, capped at 1e12; NaN prints the cap
+fn pl_mu v f64 to ulong
+x = fabs v
+if not le x 1000000.0f64
+ret 1000000000000
+end
+ret ulong mul x 1000000.0f64
+end
+
+fn pl_oflush fd int to void
+o = ulong 0
+m = get gst kop
+while lt o m bound 4096
+w = write fd gob o sub m o
+if le w 0
+exit 3
+end
+o = add o ulong w
+end
+put gst kop 0
+end
+
+fn pl_die c ulong t view uchar * to void
+put gst kop 0
+pl_otx tref
+pl_ou c
+pl_ob 32
+pl_otx t
+pl_ob 10
+pl_oflush 2
+exit int c
+end
+
+note ======== files ========
+
+fn pl_le64 o ulong to ulong
+v = ulong 0
+for i ulong 8
+v = or v shl ulong get gstb add o i mul 8 i
+end
+ret v
+end
+
+note pl_argp: copy argument a into gpth; its length
+fn pl_argp a ulong to ulong
+n = get gal a
+if or eq n 0 gt n 4000
+pl_die 2 tusage
+end
+o = get gas a
+for i ulong n
+put gpth i get ga add o i
+end
+ret n
+end
+
+note pl_open: open argument a with O_RDONLY | O_CLOEXEC | O_NOFOLLOW (arm64 557056), require a regular
+note file (st_mode & S_IFMT 61440 == S_IFREG 32768) of exactly nbyte bytes
+fn pl_open a ulong to long
+n = pl_argp a
+fd = fopen gpth 0 n 557056 0
+if lt fd 0
+if eq fd -40
+pl_die 3 tnreg
+end
+pl_die 3 tio
+end
+r = fstat int fd gstb 0 128
+if ne r 0
+pl_die 3 tio
+end
+md = or ulong get gstb 16 shl ulong get gstb 17 8
+if ne and md 61440 32768
+pl_die 3 tnreg
+end
+if ne pl_le64 48 nbyte
+pl_die 3 tsize
+end
+ret fd
+end
+
+fn pl_close fd long to void
+r = fclose int fd
+if ne r 0
+pl_die 3 tio
+end
+end
+
+note pl_load: argument 1 into la, argument 2 into lb; every pass adds at least one byte (r > 0), so
+note at most nbyte passes, below the 999999 bound
+fn pl_load w ulong to void
+fd = pl_open add w 1
+o = ulong 0
+while lt o nbyte bound 999999
+r = long 0
+if eq w 0
+r = pread int fd la o sub nbyte o long o
+else
+r = pread int fd lb o sub nbyte o long o
+end
+if le r 0
+pl_die 3 tio
+end
+o = add o ulong r
+end
+pl_close fd
+end
+
+note ======== values ========
+
+note pl_bits: raw binary32 bits of value i of arm w (0 = A, 1 = B)
+fn pl_bits w ulong i ulong to uint
+o = mul i 4
+u = uint 0
+if eq w 0
+u = or uint get la o shl uint get la add o 1 8
+u = or u shl uint get la add o 2 16
+u = or u shl uint get la add o 3 24
+else
+u = or uint get lb o shl uint get lb add o 1 8
+u = or u shl uint get lb add o 2 16
+u = or u shl uint get lb add o 3 24
+end
+ret u
+end
+
+fn pl_val w ulong i ulong to f64
+ret f64 bitcast f32 pl_bits w i
+end
+
+note pl_fin: exponent field not all ones (not Inf, not NaN)
+fn pl_fin w ulong i ulong to bool
+ret ne and shr pl_bits w i 23 255 255
+end
+
+note pl_ins: insert id i into arm w's descending top-16 list tk[16w .. 16w+16) holding n ids;
+note strict greater-than keeps the lower id ahead on a tie
+fn pl_ins w ulong i ulong n ulong to void
+x = pl_val w i
+b = mul w 16
+p = n
+if ge n 16
+if not gt x pl_val w get tk add b 15
+ret
+end
+p = ulong 15
+end
+while gt p 0 bound 16
+q = sub p 1
+if not gt x pl_val w get tk add b q
+break
+end
+put tk add b p get tk add b q
+p = q
+end
+put tk add b p i
+end
+
+note pl_take: count a nonfinite value of arm w, or insert a finite one into its top-16 list; a NaN never
+note enters the list (it compares false and would pin the ids below it)
+fn pl_take w ulong i ulong to void
+if not pl_fin w i
+put gst add knfa w add get gst add knfa w 1
+ret
+end
+n = get gst add kca w
+pl_ins w i n
+if lt n 16
+put gst add kca w add n 1
+end
+end
+
+note ======== judge ========
+
+note pl_args: argv[0 .. 3) into ga
+fn pl_args to void
+c = argcnt
+if ne c 3
+pl_die 2 tusage
+end
+o = ulong 0
+for i ulong 3
+r = argread i ga o sub len ga o
+if lt r 0
+pl_die 2 tusage
+end
+put gas i o
+put gal i ulong r
+o = add o ulong r
+end
+end
+
+note pl_scan: one pass over the vocabulary; leaves the max |A - B| bits in gst kmx, its id in kmi,
+note the sum of squared differences bits in kss, nonfinite counts in knfa / knfb, top-16 lists in tk
+fn pl_scan to void
+mx = 0.0f64
+ss = 0.0f64
+for i ulong nv
+pl_take 0 i
+pl_take 1 i
+d = fabs sub pl_val 0 i pl_val 1 i
+if gt d mx
+mx = d
+put gst kmi i
+end
+ss = add ss mul d d
+end
+put gst kmx bitcast ulong mx
+put gst kss bitcast ulong ss
+end
+
+fn pl_ovl to ulong
+ov = ulong 0
+for j ulong 16
+for k ulong 16
+if eq get tk j get tk add 16 k
+ov = add ov 1
+end
+end
+end
+ret ov
+end
+
+fn main to int
+pl_args
+pl_load 0
+pl_load 1
+pl_scan
+mx = bitcast f64 get gst kmx
+a1 = get tk 0
+b1 = get tk 16
+gap = sub pl_val 0 a1 pl_val 0 b1
+agree = or eq a1 b1 lt gap pl_band
+ok = and and eq get gst knfa 0 eq get gst knfb 0 and agree le mx pl_tau
+put gst kop 0
+pl_otx thead
+if ok
+pl_otx tpass
+else
+pl_otx tfail
+end
+pl_kv o1 a1
+pl_kv o2 b1
+pl_kv o3 pl_mu sub pl_val 0 a1 pl_val 0 get tk 1
+pl_kv o4 pl_mu mx
+pl_kv o5 get gst kmi
+pl_kv o6 pl_mu fsqrt div bitcast f64 get gst kss f64 nv
+pl_kv o7 pl_ovl
+pl_kv o8 get gst knfa
+pl_kv o9 get gst knfb
+pl_kv o10 pl_mu pl_tau
+pl_kv o11 pl_mu gap
+pl_ob 10
+pl_oflush 1
+if ok
+ret 0
+end
+ret 1
+end

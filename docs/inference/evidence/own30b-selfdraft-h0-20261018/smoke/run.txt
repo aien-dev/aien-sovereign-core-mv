@@ -1,0 +1,30 @@
+mem available before load: 47.6 GB
+build native=true spin_us=Some(2000)
+LOAD 72.0s resident 30.53 GB attention fused device_routing true
+CALIB R=16 trace-coverage 0.4819 (11843/24576 routed picks)
+CALIB 8 prompts, 64 decode tokens traced, 7.4s
+EVAL prompt 00 prompt_tokens 17 generated 8 mean L 0.12
+EVAL prompt 01 prompt_tokens 22 generated 8 mean L 2.12
+EVAL prompt 02 prompt_tokens 25 generated 8 mean L 0.38
+EVAL prompt 03 prompt_tokens 21 generated 8 mean L 2.62
+EVAL prompt 04 prompt_tokens 18 generated 8 mean L 1.25
+EVAL prompt 05 prompt_tokens 21 generated 8 mean L 1.38
+EVAL prompt 06 prompt_tokens 17 generated 8 mean L 1.38
+EVAL prompt 07 prompt_tokens 21 generated 8 mean L 1.50
+EVAL prompt 08 prompt_tokens 19 generated 8 mean L 0.38
+EVAL prompt 09 prompt_tokens 18 generated 8 mean L 3.38
+EVAL prompt 10 prompt_tokens 25 generated 8 mean L 0.38
+EVAL prompt 11 prompt_tokens 14 generated 8 mean L 1.12
+EVAL prompt 12 prompt_tokens 25 generated 8 mean L 1.62
+EVAL prompt 13 prompt_tokens 17 generated 8 mean L 0.88
+EVAL prompt 14 prompt_tokens 17 generated 8 mean L 1.88
+EVAL prompt 15 prompt_tokens 19 generated 8 mean L 0.50
+EVAL prompt 16 prompt_tokens 20 generated 8 mean L 0.88
+EVAL prompt 17 prompt_tokens 18 generated 8 mean L 1.38
+EVAL prompt 18 prompt_tokens 23 generated 8 mean L 1.88
+EVAL prompt 19 prompt_tokens 22 generated 8 mean L 0.88
+EVAL run lengths 44.5s
+ACCEPT R=16 k=4 tokens 160 blocks 77 accepted_draft 83 tokens_per_block 2.078 accept_rate 0.2695
+ACCEPT R=16 k=8 tokens 160 blocks 74 accepted_draft 86 tokens_per_block 2.162 accept_rate 0.1453
+CROSS prompt 00 R=16 k=8 literal blocks 7 simulated 7 tokens_match true OK
+SUMMARY eval_prompts 20 tokens 160 cross_check PASS
