@@ -834,7 +834,10 @@ fn a_graceful_shutdown_releases_the_engine_and_flushes_the_parks() {
         Arc::strong_count(&keep) == 1
     });
     let parked_before = pk_of(&keep).counters().parked_chunks;
-    assert!(parked_before < 3, "the parks are still in flight before the drop");
+    assert!(
+        parked_before < 3,
+        "the parks are still in flight before the drop"
+    );
     let t0 = Instant::now();
     drop(keep);
     let took = t0.elapsed();
