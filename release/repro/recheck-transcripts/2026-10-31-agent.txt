@@ -1,0 +1,295 @@
+# Agent run of release/repro/RECHECK.md, 2026-10-31.
+# Evidence level: EXERCISED by an agent (Lane6b94, SI Alpha lane 6b) on the operator's own DGX Spark, under the same
+# operator as the original build. NOT an independent recheck; the independent recheck count stays 0.
+# Kit commit acc5b5fc624171f4d3039245456dc2976d815c96. Fresh clone in /tmp/recheck-Yqkjg6, image rebuilt with --no-cache
+# (before sha256:b5d30d9f..., after sha256:621534f9...). CPU only: docker --cpuset-cpus 2-4, --memory 3g, nice 19, ionice -c3, no --gpus.
+# Result: MATCH. expected 6fb04197c272aa1d0235e7644b6e91953ff9b90f5145b250d674ff9fe41806e9
+#                observed 6fb04197c272aa1d0235e7644b6e91953ff9b90f5145b250d674ff9fe41806e9  aien-serve-http, exit=0
+# Captured with script(1) (script -q -e -c 'bash recheck-run.sh'), carriage returns removed; the runner path in the first
+# line is shortened to ~/. The runner is steps 1 to 5 of RECHECK.md verbatim under set -v, plus date, uname, docker version
+# and the old image id before step 1, and du and date after step 5.
+
+Script started on 2026-10-31 10:32:14-05:00 [COMMAND="bash ~/work/si-alpha/Lane6b94-evidence/recheck-run.sh" <not executed on terminal>]
+date -u +%Y-%m-%dT%H:%M:%SZ
+2026-10-31T15:32:14Z
+uname -a
+Linux spark-b87b 7.0.0-1019-nvidia #19~24.04.2-Ubuntu SMP PREEMPT_DYNAMIC Sun Sep  6 18:35:11 UTC 2 aarch64 aarch64 aarch64 GNU/Linux
+docker version --format 'docker server {{.Server.Version}} client {{.Client.Version}}'
+docker server 29.2.1 client 29.2.1
+docker image inspect --format 'image before run: {{.Id}}' aien-repro-build:2f40abd645d9
+image before run: sha256:b5d30d9fafe819eed037e75d49eba3af0d383c1f05592fe45f8fb3ae53e92907
+# Step 1
+R=$(mktemp -d /tmp/recheck-XXXXXX); echo "$R"
+/tmp/recheck-Yqkjg6
+git clone https://github.com/aien-dev/aien-sovereign-core-mv.git "$R/kit"
+Cloning into '/tmp/recheck-Yqkjg6/kit'...
+remote: Enumerating objects: 40619, done.        
+remote: Counting objects:   0% (1/961)        remote: Counting objects:   1% (10/961)        remote: Counting objects:   2% (20/961)        remote: Counting objects:   3% (29/961)        remote: Counting objects:   4% (39/961)        remote: Counting objects:   5% (49/961)        remote: Counting objects:   6% (58/961)        remote: Counting objects:   7% (68/961)        remote: Counting objects:   8% (77/961)        remote: Counting objects:   9% (87/961)        remote: Counting objects:  10% (97/961)        remote: Counting objects:  11% (106/961)        remote: Counting objects:  12% (116/961)        remote: Counting objects:  13% (125/961)        remote: Counting objects:  14% (135/961)        remote: Counting objects:  15% (145/961)        remote: Counting objects:  16% (154/961)        remote: Counting objects:  17% (164/961)        remote: Counting objects:  18% (173/961)        remote: Counting objects:  19% (183/961)        remote: Counting objects:  20% (193/961)        remote: Counting objects:  21% (202/961)        remote: Counting objects:  22% (212/961)        remote: Counting objects:  23% (222/961)        remote: Counting objects:  24% (231/961)        remote: Counting objects:  25% (241/961)        remote: Counting objects:  26% (250/961)        remote: Counting objects:  27% (260/961)        remote: Counting objects:  28% (270/961)        remote: Counting objects:  29% (279/961)        remote: Counting objects:  30% (289/961)        remote: Counting objects:  31% (298/961)        remote: Counting objects:  32% (308/961)        remote: Counting objects:  33% (318/961)        remote: Counting objects:  34% (327/961)        remote: Counting objects:  35% (337/961)        remote: Counting objects:  36% (346/961)        remote: Counting objects:  37% (356/961)        remote: Counting objects:  38% (366/961)        remote: Counting objects:  39% (375/961)        remote: Counting objects:  40% (385/961)        remote: Counting objects:  41% (395/961)        remote: Counting objects:  42% (404/961)        remote: Counting objects:  43% (414/961)        remote: Counting objects:  44% (423/961)        remote: Counting objects:  45% (433/961)        remote: Counting objects:  46% (443/961)        remote: Counting objects:  47% (452/961)        remote: Counting objects:  48% (462/961)        remote: Counting objects:  49% (471/961)        remote: Counting objects:  50% (481/961)        remote: Counting objects:  51% (491/961)        remote: Counting objects:  52% (500/961)        remote: Counting objects:  53% (510/961)        remote: Counting objects:  54% (519/961)        remote: Counting objects:  55% (529/961)        remote: Counting objects:  56% (539/961)        remote: Counting objects:  57% (548/961)        remote: Counting objects:  58% (558/961)        remote: Counting objects:  59% (567/961)        remote: Counting objects:  60% (577/961)        remote: Counting objects:  61% (587/961)        remote: Counting objects:  62% (596/961)        remote: Counting objects:  63% (606/961)        remote: Counting objects:  64% (616/961)        remote: Counting objects:  65% (625/961)        remote: Counting objects:  66% (635/961)        remote: Counting objects:  67% (644/961)        remote: Counting objects:  68% (654/961)        remote: Counting objects:  69% (664/961)        remote: Counting objects:  70% (673/961)        remote: Counting objects:  71% (683/961)        remote: Counting objects:  72% (692/961)        remote: Counting objects:  73% (702/961)        remote: Counting objects:  74% (712/961)        remote: Counting objects:  75% (721/961)        remote: Counting objects:  76% (731/961)        remote: Counting objects:  77% (740/961)        remote: Counting objects:  78% (750/961)        remote: Counting objects:  79% (760/961)        remote: Counting objects:  80% (769/961)        remote: Counting objects:  81% (779/961)        remote: Counting objects:  82% (789/961)        remote: Counting objects:  83% (798/961)        remote: Counting objects:  84% (808/961)        remote: Counting objects:  85% (817/961)        remote: Counting objects:  86% (827/961)        remote: Counting objects:  87% (837/961)        remote: Counting objects:  88% (846/961)        remote: Counting objects:  89% (856/961)        remote: Counting objects:  90% (865/961)        remote: Counting objects:  91% (875/961)        remote: Counting objects:  92% (885/961)        remote: Counting objects:  93% (894/961)        remote: Counting objects:  94% (904/961)        remote: Counting objects:  95% (913/961)        remote: Counting objects:  96% (923/961)        remote: Counting objects:  97% (933/961)        remote: Counting objects:  98% (942/961)        remote: Counting objects:  99% (952/961)        remote: Counting objects: 100% (961/961)        remote: Counting objects: 100% (961/961), done.        
+remote: Compressing objects:   0% (1/415)        remote: Compressing objects:   1% (5/415)        remote: Compressing objects:   2% (9/415)        remote: Compressing objects:   3% (13/415)        remote: Compressing objects:   4% (17/415)        remote: Compressing objects:   5% (21/415)        remote: Compressing objects:   6% (25/415)        remote: Compressing objects:   7% (30/415)        remote: Compressing objects:   8% (34/415)        remote: Compressing objects:   9% (38/415)        remote: Compressing objects:  10% (42/415)        remote: Compressing objects:  11% (46/415)        remote: Compressing objects:  12% (50/415)        remote: Compressing objects:  13% (54/415)        remote: Compressing objects:  14% (59/415)        remote: Compressing objects:  15% (63/415)        remote: Compressing objects:  16% (67/415)        remote: Compressing objects:  17% (71/415)        remote: Compressing objects:  18% (75/415)        remote: Compressing objects:  19% (79/415)        remote: Compressing objects:  20% (83/415)        remote: Compressing objects:  21% (88/415)        remote: Compressing objects:  22% (92/415)        remote: Compressing objects:  23% (96/415)        remote: Compressing objects:  24% (100/415)        remote: Compressing objects:  25% (104/415)        remote: Compressing objects:  26% (108/415)        remote: Compressing objects:  27% (113/415)        remote: Compressing objects:  28% (117/415)        remote: Compressing objects:  29% (121/415)        remote: Compressing objects:  30% (125/415)        remote: Compressing objects:  31% (129/415)        remote: Compressing objects:  32% (133/415)        remote: Compressing objects:  33% (137/415)        remote: Compressing objects:  34% (142/415)        remote: Compressing objects:  35% (146/415)        remote: Compressing objects:  36% (150/415)        remote: Compressing objects:  37% (154/415)        remote: Compressing objects:  38% (158/415)        remote: Compressing objects:  39% (162/415)        remote: Compressing objects:  40% (166/415)        remote: Compressing objects:  41% (171/415)        remote: Compressing objects:  42% (175/415)        remote: Compressing objects:  43% (179/415)        remote: Compressing objects:  44% (183/415)        remote: Compressing objects:  45% (187/415)        remote: Compressing objects:  46% (191/415)        remote: Compressing objects:  47% (196/415)        remote: Compressing objects:  48% (200/415)        remote: Compressing objects:  49% (204/415)        remote: Compressing objects:  50% (208/415)        remote: Compressing objects:  51% (212/415)        remote: Compressing objects:  52% (216/415)        remote: Compressing objects:  53% (220/415)        remote: Compressing objects:  54% (225/415)        remote: Compressing objects:  55% (229/415)        remote: Compressing objects:  56% (233/415)        remote: Compressing objects:  57% (237/415)        remote: Compressing objects:  58% (241/415)        remote: Compressing objects:  59% (245/415)        remote: Compressing objects:  60% (249/415)        remote: Compressing objects:  61% (254/415)        remote: Compressing objects:  62% (258/415)        remote: Compressing objects:  63% (262/415)        remote: Compressing objects:  64% (266/415)        remote: Compressing objects:  65% (270/415)        remote: Compressing objects:  66% (274/415)        remote: Compressing objects:  67% (279/415)        remote: Compressing objects:  68% (283/415)        remote: Compressing objects:  69% (287/415)        remote: Compressing objects:  70% (291/415)        remote: Compressing objects:  71% (295/415)        remote: Compressing objects:  72% (299/415)        remote: Compressing objects:  73% (303/415)        remote: Compressing objects:  74% (308/415)        remote: Compressing objects:  75% (312/415)        remote: Compressing objects:  76% (316/415)        remote: Compressing objects:  77% (320/415)        remote: Compressing objects:  78% (324/415)        remote: Compressing objects:  79% (328/415)        remote: Compressing objects:  80% (332/415)        remote: Compressing objects:  81% (337/415)        remote: Compressing objects:  82% (341/415)        remote: Compressing objects:  83% (345/415)        remote: Compressing objects:  84% (349/415)        remote: Compressing objects:  85% (353/415)        remote: Compressing objects:  86% (357/415)        remote: Compressing objects:  87% (362/415)        remote: Compressing objects:  88% (366/415)        remote: Compressing objects:  89% (370/415)        remote: Compressing objects:  90% (374/415)        remote: Compressing objects:  91% (378/415)        remote: Compressing objects:  92% (382/415)        remote: Compressing objects:  93% (386/415)        remote: Compressing objects:  94% (391/415)        remote: Compressing objects:  95% (395/415)        remote: Compressing objects:  96% (399/415)        remote: Compressing objects:  97% (403/415)        remote: Compressing objects:  98% (407/415)        remote: Compressing objects:  99% (411/415)        remote: Compressing objects: 100% (415/415)        remote: Compressing objects: 100% (415/415), done.        
+Receiving objects:   0% (1/40619)Receiving objects:   1% (407/40619)Receiving objects:   2% (813/40619)Receiving objects:   3% (1219/40619)Receiving objects:   4% (1625/40619)Receiving objects:   5% (2031/40619)Receiving objects:   6% (2438/40619)Receiving objects:   7% (2844/40619)Receiving objects:   8% (3250/40619)Receiving objects:   9% (3656/40619)Receiving objects:  10% (4062/40619)Receiving objects:  10% (4294/40619), 41.56 MiB | 40.56 MiB/sReceiving objects:  10% (4320/40619), 79.23 MiB | 38.89 MiB/sReceiving objects:  11% (4469/40619), 98.62 MiB | 38.87 MiB/sReceiving objects:  12% (4875/40619), 98.62 MiB | 38.87 MiB/sReceiving objects:  13% (5281/40619), 98.62 MiB | 38.87 MiB/sReceiving objects:  14% (5687/40619), 98.62 MiB | 38.87 MiB/sReceiving objects:  15% (6093/40619), 98.62 MiB | 38.87 MiB/sReceiving objects:  16% (6500/40619), 98.62 MiB | 38.87 MiB/sReceiving objects:  17% (6906/40619), 98.62 MiB | 38.87 MiB/sReceiving objects:  18% (7312/40619), 98.62 MiB | 38.87 MiB/sReceiving objects:  19% (7718/40619), 98.62 MiB | 38.87 MiB/sReceiving objects:  20% (8124/40619), 98.62 MiB | 38.87 MiB/sReceiving objects:  21% (8530/40619), 98.62 MiB | 38.87 MiB/sReceiving objects:  22% (8937/40619), 98.62 MiB | 38.87 MiB/sReceiving objects:  23% (9343/40619), 98.62 MiB | 38.87 MiB/sReceiving objects:  23% (9435/40619), 118.30 MiB | 38.95 MiB/sReceiving objects:  24% (9749/40619), 118.30 MiB | 38.95 MiB/sReceiving objects:  25% (10155/40619), 118.30 MiB | 38.95 MiB/sReceiving objects:  26% (10561/40619), 118.30 MiB | 38.95 MiB/sReceiving objects:  27% (10968/40619), 118.30 MiB | 38.95 MiB/sReceiving objects:  28% (11374/40619), 118.30 MiB | 38.95 MiB/sReceiving objects:  29% (11780/40619), 118.30 MiB | 38.95 MiB/sReceiving objects:  30% (12186/40619), 118.30 MiB | 38.95 MiB/sReceiving objects:  31% (12592/40619), 118.30 MiB | 38.95 MiB/sReceiving objects:  32% (12999/40619), 118.30 MiB | 38.95 MiB/sReceiving objects:  33% (13405/40619), 118.30 MiB | 38.95 MiB/sReceiving objects:  34% (13811/40619), 118.30 MiB | 38.95 MiB/sReceiving objects:  35% (14217/40619), 118.30 MiB | 38.95 MiB/sReceiving objects:  36% (14623/40619), 118.30 MiB | 38.95 MiB/sReceiving objects:  37% (15030/40619), 118.30 MiB | 38.95 MiB/sReceiving objects:  38% (15436/40619), 118.30 MiB | 38.95 MiB/sReceiving objects:  39% (15842/40619), 118.30 MiB | 38.95 MiB/sReceiving objects:  40% (16248/40619), 118.30 MiB | 38.95 MiB/sReceiving objects:  41% (16654/40619), 118.30 MiB | 38.95 MiB/sReceiving objects:  42% (17060/40619), 118.30 MiB | 38.95 MiB/sReceiving objects:  43% (17467/40619), 118.30 MiB | 38.95 MiB/sReceiving objects:  44% (17873/40619), 118.30 MiB | 38.95 MiB/sReceiving objects:  45% (18279/40619), 118.30 MiB | 38.95 MiB/sReceiving objects:  46% (18685/40619), 118.30 MiB | 38.95 MiB/sReceiving objects:  47% (19091/40619), 118.30 MiB | 38.95 MiB/sReceiving objects:  48% (19498/40619), 118.30 MiB | 38.95 MiB/sReceiving objects:  49% (19904/40619), 118.30 MiB | 38.95 MiB/sReceiving objects:  50% (20310/40619), 118.30 MiB | 38.95 MiB/sReceiving objects:  51% (20716/40619), 118.30 MiB | 38.95 MiB/sReceiving objects:  52% (21122/40619), 118.30 MiB | 38.95 MiB/sReceiving objects:  53% (21529/40619), 118.30 MiB | 38.95 MiB/sReceiving objects:  54% (21935/40619), 118.30 MiB | 38.95 MiB/sReceiving objects:  55% (22341/40619), 118.30 MiB | 38.95 MiB/sReceiving objects:  56% (22747/40619), 118.30 MiB | 38.95 MiB/sReceiving objects:  57% (23153/40619), 118.30 MiB | 38.95 MiB/sReceiving objects:  58% (23560/40619), 118.30 MiB | 38.95 MiB/sReceiving objects:  59% (23966/40619), 118.30 MiB | 38.95 MiB/sReceiving objects:  60% (24372/40619), 118.30 MiB | 38.95 MiB/sReceiving objects:  61% (24778/40619), 118.30 MiB | 38.95 MiB/sReceiving objects:  62% (25184/40619), 118.30 MiB | 38.95 MiB/sReceiving objects:  63% (25590/40619), 118.30 MiB | 38.95 MiB/sReceiving objects:  64% (25997/40619), 118.30 MiB | 38.95 MiB/sReceiving objects:  65% (26403/40619), 118.30 MiB | 38.95 MiB/sReceiving objects:  66% (26809/40619), 118.30 MiB | 38.95 MiB/sReceiving objects:  67% (27215/40619), 118.30 MiB | 38.95 MiB/sReceiving objects:  68% (27621/40619), 118.30 MiB | 38.95 MiB/sReceiving objects:  69% (28028/40619), 118.30 MiB | 38.95 MiB/sReceiving objects:  70% (28434/40619), 118.30 MiB | 38.95 MiB/sReceiving objects:  71% (28840/40619), 138.33 MiB | 39.10 MiB/sReceiving objects:  72% (29246/40619), 138.33 MiB | 39.10 MiB/sReceiving objects:  73% (29652/40619), 138.33 MiB | 39.10 MiB/sReceiving objects:  74% (30059/40619), 138.33 MiB | 39.10 MiB/sReceiving objects:  75% (30465/40619), 138.33 MiB | 39.10 MiB/sReceiving objects:  76% (30871/40619), 138.33 MiB | 39.10 MiB/sReceiving objects:  77% (31277/40619), 138.33 MiB | 39.10 MiB/sReceiving objects:  78% (31683/40619), 138.33 MiB | 39.10 MiB/sReceiving objects:  79% (32090/40619), 138.33 MiB | 39.10 MiB/sReceiving objects:  80% (32496/40619), 138.33 MiB | 39.10 MiB/sReceiving objects:  81% (32902/40619), 138.33 MiB | 39.10 MiB/sReceiving objects:  82% (33308/40619), 138.33 MiB | 39.10 MiB/sReceiving objects:  83% (33714/40619), 138.33 MiB | 39.10 MiB/sReceiving objects:  84% (34120/40619), 138.33 MiB | 39.10 MiB/sReceiving objects:  85% (34527/40619), 138.33 MiB | 39.10 MiB/sReceiving objects:  86% (34933/40619), 138.33 MiB | 39.10 MiB/sReceiving objects:  87% (35339/40619), 138.33 MiB | 39.10 MiB/sReceiving objects:  88% (35745/40619), 138.33 MiB | 39.10 MiB/sReceiving objects:  89% (36151/40619), 138.33 MiB | 39.10 MiB/sReceiving objects:  90% (36558/40619), 138.33 MiB | 39.10 MiB/sReceiving objects:  91% (36964/40619), 138.33 MiB | 39.10 MiB/sReceiving objects:  92% (37370/40619), 138.33 MiB | 39.10 MiB/sReceiving objects:  93% (37776/40619), 138.33 MiB | 39.10 MiB/sReceiving objects:  94% (38182/40619), 138.33 MiB | 39.10 MiB/sReceiving objects:  95% (38589/40619), 138.33 MiB | 39.10 MiB/sReceiving objects:  96% (38995/40619), 138.33 MiB | 39.10 MiB/sReceiving objects:  97% (39401/40619), 138.33 MiB | 39.10 MiB/sReceiving objects:  98% (39807/40619), 138.33 MiB | 39.10 MiB/sReceiving objects:  99% (40213/40619), 138.33 MiB | 39.10 MiB/sremote: Total 40619 (delta 674), reused 752 (delta 532), pack-reused 39658 (from 1)        
+Receiving objects: 100% (40619/40619), 138.33 MiB | 39.10 MiB/sReceiving objects: 100% (40619/40619), 143.84 MiB | 39.13 MiB/s, done.
+Resolving deltas:   0% (0/27716)Resolving deltas:   1% (278/27716)Resolving deltas:   2% (555/27716)Resolving deltas:   3% (833/27716)Resolving deltas:   4% (1109/27716)Resolving deltas:   5% (1386/27716)Resolving deltas:   6% (1663/27716)Resolving deltas:   7% (1941/27716)Resolving deltas:   8% (2218/27716)Resolving deltas:   9% (2495/27716)Resolving deltas:  10% (2772/27716)Resolving deltas:  11% (3049/27716)Resolving deltas:  12% (3326/27716)Resolving deltas:  13% (3604/27716)Resolving deltas:  14% (3881/27716)Resolving deltas:  15% (4158/27716)Resolving deltas:  16% (4435/27716)Resolving deltas:  17% (4712/27716)Resolving deltas:  18% (4989/27716)Resolving deltas:  19% (5269/27716)Resolving deltas:  20% (5544/27716)Resolving deltas:  21% (5821/27716)Resolving deltas:  22% (6098/27716)Resolving deltas:  23% (6375/27716)Resolving deltas:  24% (6652/27716)Resolving deltas:  25% (6929/27716)Resolving deltas:  26% (7207/27716)Resolving deltas:  27% (7484/27716)Resolving deltas:  28% (7761/27716)Resolving deltas:  29% (8038/27716)Resolving deltas:  30% (8315/27716)Resolving deltas:  31% (8592/27716)Resolving deltas:  32% (8872/27716)Resolving deltas:  33% (9147/27716)Resolving deltas:  34% (9424/27716)Resolving deltas:  35% (9701/27716)Resolving deltas:  36% (9978/27716)Resolving deltas:  37% (10255/27716)Resolving deltas:  38% (10535/27716)Resolving deltas:  39% (10810/27716)Resolving deltas:  40% (11087/27716)Resolving deltas:  41% (11364/27716)Resolving deltas:  42% (11642/27716)Resolving deltas:  43% (11918/27716)Resolving deltas:  44% (12196/27716)Resolving deltas:  45% (12473/27716)Resolving deltas:  46% (12750/27716)Resolving deltas:  47% (13027/27716)Resolving deltas:  48% (13304/27716)Resolving deltas:  49% (13584/27716)Resolving deltas:  50% (13858/27716)Resolving deltas:  51% (14136/27716)Resolving deltas:  52% (14413/27716)Resolving deltas:  53% (14691/27716)Resolving deltas:  54% (14967/27716)Resolving deltas:  55% (15244/27716)Resolving deltas:  56% (15521/27716)Resolving deltas:  57% (15799/27716)Resolving deltas:  58% (16076/27716)Resolving deltas:  59% (16353/27716)Resolving deltas:  60% (16630/27716)Resolving deltas:  61% (16908/27716)Resolving deltas:  62% (17185/27716)Resolving deltas:  63% (17462/27716)Resolving deltas:  64% (17739/27716)Resolving deltas:  65% (18016/27716)Resolving deltas:  66% (18293/27716)Resolving deltas:  67% (18571/27716)Resolving deltas:  68% (18847/27716)Resolving deltas:  69% (19125/27716)Resolving deltas:  70% (19402/27716)Resolving deltas:  71% (19682/27716)Resolving deltas:  72% (19956/27716)Resolving deltas:  73% (20233/27716)Resolving deltas:  74% (20511/27716)Resolving deltas:  75% (20787/27716)Resolving deltas:  76% (21065/27716)Resolving deltas:  77% (21342/27716)Resolving deltas:  78% (21624/27716)Resolving deltas:  79% (21896/27716)Resolving deltas:  80% (22173/27716)Resolving deltas:  81% (22450/27716)Resolving deltas:  82% (22731/27716)Resolving deltas:  83% (23005/27716)Resolving deltas:  84% (23282/27716)Resolving deltas:  85% (23561/27716)Resolving deltas:  86% (23837/27716)Resolving deltas:  87% (24113/27716)Resolving deltas:  88% (24391/27716)Resolving deltas:  89% (24669/27716)Resolving deltas:  90% (24946/27716)Resolving deltas:  91% (25222/27716)Resolving deltas:  92% (25499/27716)Resolving deltas:  93% (25778/27716)Resolving deltas:  94% (26055/27716)Resolving deltas:  95% (26331/27716)Resolving deltas:  96% (26608/27716)Resolving deltas:  97% (26885/27716)Resolving deltas:  98% (27162/27716)Resolving deltas:  99% (27442/27716)Resolving deltas: 100% (27716/27716)Resolving deltas: 100% (27716/27716), done.
+Updating files:  12% (1013/8196)Updating files:  13% (1066/8196)Updating files:  14% (1148/8196)Updating files:  15% (1230/8196)Updating files:  16% (1312/8196)Updating files:  17% (1394/8196)Updating files:  18% (1476/8196)Updating files:  19% (1558/8196)Updating files:  20% (1640/8196)Updating files:  21% (1722/8196)Updating files:  22% (1804/8196)Updating files:  23% (1886/8196)Updating files:  24% (1968/8196)Updating files:  25% (2049/8196)Updating files:  26% (2131/8196)Updating files:  27% (2213/8196)Updating files:  28% (2295/8196)Updating files:  29% (2377/8196)Updating files:  30% (2459/8196)Updating files:  31% (2541/8196)Updating files:  32% (2623/8196)Updating files:  33% (2705/8196)Updating files:  34% (2787/8196)Updating files:  35% (2869/8196)Updating files:  36% (2951/8196)Updating files:  37% (3033/8196)Updating files:  38% (3115/8196)Updating files:  39% (3197/8196)Updating files:  40% (3279/8196)Updating files:  41% (3361/8196)Updating files:  42% (3443/8196)Updating files:  43% (3525/8196)Updating files:  44% (3607/8196)Updating files:  45% (3689/8196)Updating files:  46% (3771/8196)Updating files:  47% (3853/8196)Updating files:  48% (3935/8196)Updating files:  49% (4017/8196)Updating files:  50% (4098/8196)Updating files:  51% (4180/8196)Updating files:  52% (4262/8196)Updating files:  53% (4344/8196)Updating files:  54% (4426/8196)Updating files:  55% (4508/8196)Updating files:  56% (4590/8196)Updating files:  57% (4672/8196)Updating files:  58% (4754/8196)Updating files:  59% (4836/8196)Updating files:  60% (4918/8196)Updating files:  61% (5000/8196)Updating files:  62% (5082/8196)Updating files:  63% (5164/8196)Updating files:  64% (5246/8196)Updating files:  65% (5328/8196)Updating files:  66% (5410/8196)Updating files:  67% (5492/8196)Updating files:  68% (5574/8196)Updating files:  69% (5656/8196)Updating files:  70% (5738/8196)Updating files:  71% (5820/8196)Updating files:  72% (5902/8196)Updating files:  73% (5984/8196)Updating files:  74% (6066/8196)Updating files:  75% (6147/8196)Updating files:  76% (6229/8196)Updating files:  77% (6311/8196)Updating files:  78% (6393/8196)Updating files:  79% (6475/8196)Updating files:  80% (6557/8196)Updating files:  81% (6639/8196)Updating files:  82% (6721/8196)Updating files:  83% (6803/8196)Updating files:  84% (6885/8196)Updating files:  85% (6967/8196)Updating files:  86% (7049/8196)Updating files:  87% (7131/8196)Updating files:  88% (7213/8196)Updating files:  89% (7295/8196)Updating files:  90% (7377/8196)Updating files:  91% (7459/8196)Updating files:  92% (7541/8196)Updating files:  93% (7623/8196)Updating files:  94% (7705/8196)Updating files:  95% (7787/8196)Updating files:  96% (7869/8196)Updating files:  97% (7951/8196)Updating files:  98% (8033/8196)Updating files:  99% (8115/8196)Updating files: 100% (8196/8196)Updating files: 100% (8196/8196), done.
+cd "$R/kit"
+git checkout dhgmonkey94/dra-94-publish-the-independent-recheck-count-and-a-recheck-kit-for
+branch 'dhgmonkey94/dra-94-publish-the-independent-recheck-count-and-a-recheck-kit-for' set up to track 'origin/dhgmonkey94/dra-94-publish-the-independent-recheck-count-and-a-recheck-kit-for'.
+Switched to a new branch 'dhgmonkey94/dra-94-publish-the-independent-recheck-count-and-a-recheck-kit-for'
+git rev-parse HEAD
+acc5b5fc624171f4d3039245456dc2976d815c96
+# Step 2
+sha256sum -c <<'EOF'
+26db7be518f0630fde85d28bfd50007353802be0d03d0e8a945fd09a3a6c14ac  scripts/repro-container-build.sh
+2f40abd645d9a21868c8712b06149b8a1fa763bdce3dc9cabc211c626734998f  release/repro/Dockerfile
+5a09da775509ace488f4fb732a40837c6636bb7d884d3e24b904d822f37cdae1  release/repro/inside.sh
+EOF
+scripts/repro-container-build.sh: OK
+release/repro/Dockerfile: OK
+release/repro/inside.sh: OK
+# Step 3
+TAG="aien-repro-build:$(sha256sum release/repro/Dockerfile | cut -c1-12)"
+nice -n 19 ionice -c3 docker build --pull --no-cache -q -t "$TAG" release/repro
+sha256:621534f9ca6ee98a7ea0ea244bb8b3108c69a9f96ed3c63e5c66326c57e6ba46
+docker run --rm --network none "$TAG" sh -c 'uname -m; dpkg-query -W -f="\${Package}=\${Version}\n" gcc gcc-13 binutils libc6-dev make; rustc -V; cargo -V'
+aarch64
+binutils=2.42-4ubuntu2.10
+gcc=4:13.2.0-7ubuntu1
+gcc-13=13.3.0-6ubuntu2~24.04.1
+libc6-dev=2.39-0ubuntu8.9
+make=4.3-4.1build2
+rustc 1.98.1 (48a229cea 2026-09-01)
+cargo 1.98.1 (797e8a9bc 2026-08-05)
+# Step 4
+CORE_REV=d3dec0eb18818808212bdf99db5c8612bcfcb9ef \
+OMEGA_REV=a647b6a9821fffcf52ba9ce813f75afa4b84be62 \
+PHYSICS_REV=048e5f5e881b092733baaf65d0ace46abda7f908 \
+EXPECT_LIB_SHA256=036b7491d85a2d0781360c194402f345ad2f63720dab1b8f6d0cbc5c09f87d3e \
+EXPECT_ENGINE_SHA256=6fb04197c272aa1d0235e7644b6e91953ff9b90f5145b250d674ff9fe41806e9 \
+REPRO_CPUS=2-4 REPRO_JOBS=3 REPRO_MEMORY=3g \
+nice -n 19 ionice -c3 timeout 3h bash scripts/repro-container-build.sh "$R/work"; echo "exit=$?"
+work=/tmp/recheck-Yqkjg6/work
+mode=remap
+core=d3dec0eb18818808212bdf99db5c8612bcfcb9ef
+omega=a647b6a9821fffcf52ba9ce813f75afa4b84be62
+physics=048e5f5e881b092733baaf65d0ace46abda7f908
+SOURCE_DATE_EPOCH=1793446268
+CARGO_HOME=/tmp/recheck-Yqkjg6/work/cargo-home
+CARGO_TARGET_DIR=/tmp/recheck-Yqkjg6/work/target
+rustc: rustc 1.98.1 (48a229cea 2026-09-01) binary: rustc commit-hash: 48a229ceaefd4985c50990b14116b6d856af0985 commit-date: 2026-09-01 host: aarch64-unknown-linux-gnu release: 1.98.1 LLVM version: 22.1.8 
+gcc: gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+ar: GNU ar (GNU Binutils for Ubuntu) 2.42
+ld: GNU ld (GNU Binutils for Ubuntu) 2.42
+make: GNU Make 4.3
+ar members:
+rw-r--r-- 0/0   4944 Jan  1 00:00 1970 sha256.o
+rw-r--r-- 0/0   5936 Jan  1 00:00 1970 omega_canonical.o
+rw-r--r-- 0/0   9488 Jan  1 00:00 1970 omega_validate.o
+rw-r--r-- 0/0  16816 Jan  1 00:00 1970 omega_core.o
+rw-r--r-- 0/0   8968 Jan  1 00:00 1970 omega_codec.o
+rw-r--r-- 0/0  18304 Jan  1 00:00 1970 aarch64_encoder.o
+rw-r--r-- 0/0   3504 Jan  1 00:00 1970 aarch64_decoder.o
+rw-r--r-- 0/0   4776 Jan  1 00:00 1970 omega_realize.o
+rw-r--r-- 0/0   6016 Jan  1 00:00 1970 omega_exec.o
+rw-r--r-- 0/0  13064 Jan  1 00:00 1970 omega_self_host.o
+rw-r--r-- 0/0   8904 Jan  1 00:00 1970 omega_verify.o
+rw-r--r-- 0/0  27688 Jan  1 00:00 1970 omega_program.o
+rw-r--r-- 0/0  12984 Jan  1 00:00 1970 omega_synthesis.o
+rw-r--r-- 0/0   7496 Jan  1 00:00 1970 omega_library.o
+rw-r--r-- 0/0  10704 Jan  1 00:00 1970 omega_discovery.o
+rw-r--r-- 0/0   8424 Jan  1 00:00 1970 omega_machine.o
+rw-r--r-- 0/0  10808 Jan  1 00:00 1970 omega_realize_synth.o
+rw-r--r-- 0/0  13704 Jan  1 00:00 1970 omega_matvec.o
+rw-r--r-- 0/0   3800 Jan  1 00:00 1970 omega_accelerator.o
+rw-r--r-- 0/0  23912 Jan  1 00:00 1970 omega_accelerator_world.o
+rw-r--r-- 0/0   4104 Jan  1 00:00 1970 omega_vector.o
+rw-r--r-- 0/0   5800 Jan  1 00:00 1970 omega_blackwell_encoder.o
+rw-r--r-- 0/0   4704 Jan  1 00:00 1970 omega_blackwell_qmd.o
+rw-r--r-- 0/0   3680 Jan  1 00:00 1970 omega_blackwell_realize.o
+rw-r--r-- 0/0  16952 Jan  1 00:00 1970 omega_blackwell_submit.o
+rw-r--r-- 0/0  15224 Jan  1 00:00 1970 omega_blackwell_engine.o
+rw-r--r-- 0/0  10600 Jan  1 00:00 1970 omega_gpu_engine.o
+rw-r--r-- 0/0   4680 Jan  1 00:00 1970 omega_blackwell_matmul.o
+rw-r--r-- 0/0  70352 Jan  1 00:00 1970 omega_blackwell_codegen.o
+rw-r--r-- 0/0  27144 Jan  1 00:00 1970 omega_gpu_session.o
+rw-r--r-- 0/0   5208 Jan  1 00:00 1970 omega_gpu_platform.o
+rw-r--r-- 0/0  19008 Jan  1 00:00 1970 omega_gpu_platform_linux.o
+rw-r--r-- 0/0   3824 Jan  1 00:00 1970 omega_gpu_fmt.o
+rw-r--r-- 0/0  48392 Jan  1 00:00 1970 omega_gpu_matmul_api.o
+rw-r--r-- 0/0  48744 Jan  1 00:00 1970 omega_gpu_elementwise_api.o
+rw-r--r-- 0/0  68600 Jan  1 00:00 1970 omega_gpu_attention_api.o
+rw-r--r-- 0/0   2336 Jan  1 00:00 1970 omega_gpu_serving.o
+rw-r--r-- 0/0   4600 Jan  1 00:00 1970 omega_gpu_wait.o
+rw-r--r-- 0/0  10272 Jan  1 00:00 1970 omega_evidence.o
+rw-r--r-- 0/0   4560 Jan  1 00:00 1970 m16_native.o
+rw-r--r-- 0/0  29680 Jan  1 00:00 1970 nvrm.o
+rw-r--r-- 0/0  36224 Jan  1 00:00 1970 omega_gpu_moe_api.o
+rw-r--r-- 0/0  28552 Jan  1 00:00 1970 omega_blackwell_codegen_moe.o
+rw-r--r-- 0/0   3528 Jan  1 00:00 1970 omega_gpu_fp8_pack.o
+rw-r--r-- 0/0  32696 Jan  1 00:00 1970 omega_gpu_fp8_api.o
+rw-r--r-- 0/0  21856 Jan  1 00:00 1970 omega_blackwell_codegen_moe2.o
+rw-r--r-- 0/0  35728 Jan  1 00:00 1970 omega_blackwell_codegen_attn.o
+rw-r--r-- 0/0  15352 Jan  1 00:00 1970 omega_gpu_decode_attn_api.o
+rw-r--r-- 0/0  40432 Jan  1 00:00 1970 omega_blackwell_codegen_attn256.o
+rw-r--r-- 0/0  19040 Jan  1 00:00 1970 omega_gpu_decode_attn256_api.o
+rw-r--r-- 0/0  29080 Jan  1 00:00 1970 omega_blackwell_codegen_pattn256.o
+rw-r--r-- 0/0  13928 Jan  1 00:00 1970 omega_gpu_prefill_attn256_api.o
+rw-r--r-- 0/0   3592 Jan  1 00:00 1970 omega_gpu_hostmath.o
+rw-r--r-- 0/0  32744 Jan  1 00:00 1970 omega_blackwell_codegen_router.o
+rw-r--r-- 0/0  17984 Jan  1 00:00 1970 omega_gpu_router_api.o
+rw-r--r-- 0/0  72232 Jan  1 00:00 1970 omega_blackwell_codegen_gdn.o
+rw-r--r-- 0/0  28928 Jan  1 00:00 1970 omega_gpu_gdn_api.o
+rw-r--r-- 0/0  22824 Jan  1 00:00 1970 omega_gpu_cmdlist.o
+rw-r--r-- 0/0  43896 Jan  1 00:00 1970 omega_blackwell_codegen_dec.o
+rw-r--r-- 0/0  22496 Jan  1 00:00 1970 omega_gpu_scan.o
+rw-r--r-- 0/0   3280 Jan  1 00:00 1970 omega_gpu_scan_ref.o
+rw-r--r-- 0/0  29416 Jan  1 00:00 1970 omega_gpu_gemm.o
+rw-r--r-- 0/0   2800 Jan  1 00:00 1970 omega_gpu_mem_cached.o
+rw-r--r-- 0/0  21160 Jan  1 00:00 1970 omega_gpu_decode_graph.o
+rw-r--r-- 0/0  23800 Jan  1 00:00 1970 omega_gpu_q38_graph.o
+rw-r--r-- 0/0  52856 Jan  1 00:00 1970 omega_gpu_q36_graph.o
+rw-r--r-- 0/0  19736 Jan  1 00:00 1970 omega_sm121_disasm.o
+rw-r--r-- 0/0  18664 Jan  1 00:00 1970 omega_blackwell_codegen_bf16.o
+rw-r--r-- 0/0  18048 Jan  1 00:00 1970 omega_gpu_bf16_gemv_api.o
+rw-r--r-- 0/0  24528 Jan  1 00:00 1970 omega_blackwell_codegen_gemm.o
+rw-r--r-- 0/0  17512 Jan  1 00:00 1970 omega_gpu_fp8gemm_api.o
+rw-r--r-- 0/0  35984 Jan  1 00:00 1970 omega_blackwell_codegen_tc.o
+rw-r--r-- 0/0  12240 Jan  1 00:00 1970 omega_gpu_tcgemm_api.o
+rw-r--r-- 0/0  38384 Jan  1 00:00 1970 omega_blackwell_codegen_pattn.o
+rw-r--r-- 0/0  20720 Jan  1 00:00 1970 omega_gpu_prefill_attn_api.o
+rw-r--r-- 0/0   5448 Jan  1 00:00 1970 omega_blackwell_codegen_pf.o
+rw-r--r-- 0/0  14208 Jan  1 00:00 1970 omega_gpu_prefill.o
+rw-r--r-- 0/0  25904 Jan  1 00:00 1970 omega_blackwell_codegen_tc2.o
+rw-r--r-- 0/0  13640 Jan  1 00:00 1970 omega_gpu_pfgemm.o
+rw-r--r-- 0/0  17520 Jan  1 00:00 1970 omega_blackwell_codegen_qmma.o
+rw-r--r-- 0/0  32960 Jan  1 00:00 1970 omega_blackwell_codegen_qg.o
+rw-r--r-- 0/0  16792 Jan  1 00:00 1970 omega_blackwell_codegen_pfhost.o
+rw-r--r-- 0/0   5784 Jan  1 00:00 1970 omega_gpu_pfhost.o
+rw-r--r-- 0/0  23432 Jan  1 00:00 1970 omega_blackwell_codegen_tern.o
+rw-r--r-- 0/0  17488 Jan  1 00:00 1970 omega_gpu_tern_api.o
+rw-r--r-- 0/0   4112 Jan  1 00:00 1970 omega_program_ir.o
+rw-r--r-- 0/0  12872 Jan  1 00:00 1970 omega_vc_bridge.o
+rw-r--r-- 0/0  40480 Jan  1 00:00 1970 omega_resolve.o
+rw-r--r-- 0/0  42432 Jan  1 00:00 1970 omega_receipt.o
+rw-r--r-- 0/0   5584 Jan  1 00:00 1970 omega_blake3.o
+rw-r--r-- 0/0  26688 Jan  1 00:00 1970 omega_vcstore.o
+sha256:
+036b7491d85a2d0781360c194402f345ad2f63720dab1b8f6d0cbc5c09f87d3e  libomega_gpu.a
+6fb04197c272aa1d0235e7644b6e91953ff9b90f5145b250d674ff9fe41806e9  aien-serve-http
+exit=0
+# Step 5
+cat "$R/work/out/BUILD-INFO.txt"
+work=/tmp/recheck-Yqkjg6/work
+mode=remap
+core=d3dec0eb18818808212bdf99db5c8612bcfcb9ef
+omega=a647b6a9821fffcf52ba9ce813f75afa4b84be62
+physics=048e5f5e881b092733baaf65d0ace46abda7f908
+SOURCE_DATE_EPOCH=1793446268
+CARGO_HOME=/tmp/recheck-Yqkjg6/work/cargo-home
+CARGO_TARGET_DIR=/tmp/recheck-Yqkjg6/work/target
+rustc: rustc 1.98.1 (48a229cea 2026-09-01) binary: rustc commit-hash: 48a229ceaefd4985c50990b14116b6d856af0985 commit-date: 2026-09-01 host: aarch64-unknown-linux-gnu release: 1.98.1 LLVM version: 22.1.8 
+gcc: gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+ar: GNU ar (GNU Binutils for Ubuntu) 2.42
+ld: GNU ld (GNU Binutils for Ubuntu) 2.42
+make: GNU Make 4.3
+ar members:
+rw-r--r-- 0/0   4944 Jan  1 00:00 1970 sha256.o
+rw-r--r-- 0/0   5936 Jan  1 00:00 1970 omega_canonical.o
+rw-r--r-- 0/0   9488 Jan  1 00:00 1970 omega_validate.o
+rw-r--r-- 0/0  16816 Jan  1 00:00 1970 omega_core.o
+rw-r--r-- 0/0   8968 Jan  1 00:00 1970 omega_codec.o
+rw-r--r-- 0/0  18304 Jan  1 00:00 1970 aarch64_encoder.o
+rw-r--r-- 0/0   3504 Jan  1 00:00 1970 aarch64_decoder.o
+rw-r--r-- 0/0   4776 Jan  1 00:00 1970 omega_realize.o
+rw-r--r-- 0/0   6016 Jan  1 00:00 1970 omega_exec.o
+rw-r--r-- 0/0  13064 Jan  1 00:00 1970 omega_self_host.o
+rw-r--r-- 0/0   8904 Jan  1 00:00 1970 omega_verify.o
+rw-r--r-- 0/0  27688 Jan  1 00:00 1970 omega_program.o
+rw-r--r-- 0/0  12984 Jan  1 00:00 1970 omega_synthesis.o
+rw-r--r-- 0/0   7496 Jan  1 00:00 1970 omega_library.o
+rw-r--r-- 0/0  10704 Jan  1 00:00 1970 omega_discovery.o
+rw-r--r-- 0/0   8424 Jan  1 00:00 1970 omega_machine.o
+rw-r--r-- 0/0  10808 Jan  1 00:00 1970 omega_realize_synth.o
+rw-r--r-- 0/0  13704 Jan  1 00:00 1970 omega_matvec.o
+rw-r--r-- 0/0   3800 Jan  1 00:00 1970 omega_accelerator.o
+rw-r--r-- 0/0  23912 Jan  1 00:00 1970 omega_accelerator_world.o
+rw-r--r-- 0/0   4104 Jan  1 00:00 1970 omega_vector.o
+rw-r--r-- 0/0   5800 Jan  1 00:00 1970 omega_blackwell_encoder.o
+rw-r--r-- 0/0   4704 Jan  1 00:00 1970 omega_blackwell_qmd.o
+rw-r--r-- 0/0   3680 Jan  1 00:00 1970 omega_blackwell_realize.o
+rw-r--r-- 0/0  16952 Jan  1 00:00 1970 omega_blackwell_submit.o
+rw-r--r-- 0/0  15224 Jan  1 00:00 1970 omega_blackwell_engine.o
+rw-r--r-- 0/0  10600 Jan  1 00:00 1970 omega_gpu_engine.o
+rw-r--r-- 0/0   4680 Jan  1 00:00 1970 omega_blackwell_matmul.o
+rw-r--r-- 0/0  70352 Jan  1 00:00 1970 omega_blackwell_codegen.o
+rw-r--r-- 0/0  27144 Jan  1 00:00 1970 omega_gpu_session.o
+rw-r--r-- 0/0   5208 Jan  1 00:00 1970 omega_gpu_platform.o
+rw-r--r-- 0/0  19008 Jan  1 00:00 1970 omega_gpu_platform_linux.o
+rw-r--r-- 0/0   3824 Jan  1 00:00 1970 omega_gpu_fmt.o
+rw-r--r-- 0/0  48392 Jan  1 00:00 1970 omega_gpu_matmul_api.o
+rw-r--r-- 0/0  48744 Jan  1 00:00 1970 omega_gpu_elementwise_api.o
+rw-r--r-- 0/0  68600 Jan  1 00:00 1970 omega_gpu_attention_api.o
+rw-r--r-- 0/0   2336 Jan  1 00:00 1970 omega_gpu_serving.o
+rw-r--r-- 0/0   4600 Jan  1 00:00 1970 omega_gpu_wait.o
+rw-r--r-- 0/0  10272 Jan  1 00:00 1970 omega_evidence.o
+rw-r--r-- 0/0   4560 Jan  1 00:00 1970 m16_native.o
+rw-r--r-- 0/0  29680 Jan  1 00:00 1970 nvrm.o
+rw-r--r-- 0/0  36224 Jan  1 00:00 1970 omega_gpu_moe_api.o
+rw-r--r-- 0/0  28552 Jan  1 00:00 1970 omega_blackwell_codegen_moe.o
+rw-r--r-- 0/0   3528 Jan  1 00:00 1970 omega_gpu_fp8_pack.o
+rw-r--r-- 0/0  32696 Jan  1 00:00 1970 omega_gpu_fp8_api.o
+rw-r--r-- 0/0  21856 Jan  1 00:00 1970 omega_blackwell_codegen_moe2.o
+rw-r--r-- 0/0  35728 Jan  1 00:00 1970 omega_blackwell_codegen_attn.o
+rw-r--r-- 0/0  15352 Jan  1 00:00 1970 omega_gpu_decode_attn_api.o
+rw-r--r-- 0/0  40432 Jan  1 00:00 1970 omega_blackwell_codegen_attn256.o
+rw-r--r-- 0/0  19040 Jan  1 00:00 1970 omega_gpu_decode_attn256_api.o
+rw-r--r-- 0/0  29080 Jan  1 00:00 1970 omega_blackwell_codegen_pattn256.o
+rw-r--r-- 0/0  13928 Jan  1 00:00 1970 omega_gpu_prefill_attn256_api.o
+rw-r--r-- 0/0   3592 Jan  1 00:00 1970 omega_gpu_hostmath.o
+rw-r--r-- 0/0  32744 Jan  1 00:00 1970 omega_blackwell_codegen_router.o
+rw-r--r-- 0/0  17984 Jan  1 00:00 1970 omega_gpu_router_api.o
+rw-r--r-- 0/0  72232 Jan  1 00:00 1970 omega_blackwell_codegen_gdn.o
+rw-r--r-- 0/0  28928 Jan  1 00:00 1970 omega_gpu_gdn_api.o
+rw-r--r-- 0/0  22824 Jan  1 00:00 1970 omega_gpu_cmdlist.o
+rw-r--r-- 0/0  43896 Jan  1 00:00 1970 omega_blackwell_codegen_dec.o
+rw-r--r-- 0/0  22496 Jan  1 00:00 1970 omega_gpu_scan.o
+rw-r--r-- 0/0   3280 Jan  1 00:00 1970 omega_gpu_scan_ref.o
+rw-r--r-- 0/0  29416 Jan  1 00:00 1970 omega_gpu_gemm.o
+rw-r--r-- 0/0   2800 Jan  1 00:00 1970 omega_gpu_mem_cached.o
+rw-r--r-- 0/0  21160 Jan  1 00:00 1970 omega_gpu_decode_graph.o
+rw-r--r-- 0/0  23800 Jan  1 00:00 1970 omega_gpu_q38_graph.o
+rw-r--r-- 0/0  52856 Jan  1 00:00 1970 omega_gpu_q36_graph.o
+rw-r--r-- 0/0  19736 Jan  1 00:00 1970 omega_sm121_disasm.o
+rw-r--r-- 0/0  18664 Jan  1 00:00 1970 omega_blackwell_codegen_bf16.o
+rw-r--r-- 0/0  18048 Jan  1 00:00 1970 omega_gpu_bf16_gemv_api.o
+rw-r--r-- 0/0  24528 Jan  1 00:00 1970 omega_blackwell_codegen_gemm.o
+rw-r--r-- 0/0  17512 Jan  1 00:00 1970 omega_gpu_fp8gemm_api.o
+rw-r--r-- 0/0  35984 Jan  1 00:00 1970 omega_blackwell_codegen_tc.o
+rw-r--r-- 0/0  12240 Jan  1 00:00 1970 omega_gpu_tcgemm_api.o
+rw-r--r-- 0/0  38384 Jan  1 00:00 1970 omega_blackwell_codegen_pattn.o
+rw-r--r-- 0/0  20720 Jan  1 00:00 1970 omega_gpu_prefill_attn_api.o
+rw-r--r-- 0/0   5448 Jan  1 00:00 1970 omega_blackwell_codegen_pf.o
+rw-r--r-- 0/0  14208 Jan  1 00:00 1970 omega_gpu_prefill.o
+rw-r--r-- 0/0  25904 Jan  1 00:00 1970 omega_blackwell_codegen_tc2.o
+rw-r--r-- 0/0  13640 Jan  1 00:00 1970 omega_gpu_pfgemm.o
+rw-r--r-- 0/0  17520 Jan  1 00:00 1970 omega_blackwell_codegen_qmma.o
+rw-r--r-- 0/0  32960 Jan  1 00:00 1970 omega_blackwell_codegen_qg.o
+rw-r--r-- 0/0  16792 Jan  1 00:00 1970 omega_blackwell_codegen_pfhost.o
+rw-r--r-- 0/0   5784 Jan  1 00:00 1970 omega_gpu_pfhost.o
+rw-r--r-- 0/0  23432 Jan  1 00:00 1970 omega_blackwell_codegen_tern.o
+rw-r--r-- 0/0  17488 Jan  1 00:00 1970 omega_gpu_tern_api.o
+rw-r--r-- 0/0   4112 Jan  1 00:00 1970 omega_program_ir.o
+rw-r--r-- 0/0  12872 Jan  1 00:00 1970 omega_vc_bridge.o
+rw-r--r-- 0/0  40480 Jan  1 00:00 1970 omega_resolve.o
+rw-r--r-- 0/0  42432 Jan  1 00:00 1970 omega_receipt.o
+rw-r--r-- 0/0   5584 Jan  1 00:00 1970 omega_blake3.o
+rw-r--r-- 0/0  26688 Jan  1 00:00 1970 omega_vcstore.o
+sha256:
+036b7491d85a2d0781360c194402f345ad2f63720dab1b8f6d0cbc5c09f87d3e  libomega_gpu.a
+6fb04197c272aa1d0235e7644b6e91953ff9b90f5145b250d674ff9fe41806e9  aien-serve-http
+sha256sum "$R/work/out/aien-serve-http"
+6fb04197c272aa1d0235e7644b6e91953ff9b90f5145b250d674ff9fe41806e9  /tmp/recheck-Yqkjg6/work/out/aien-serve-http
+du -sh "$R/work"
+1.9G	/tmp/recheck-Yqkjg6/work
+date -u +%Y-%m-%dT%H:%M:%SZ
+2026-10-31T15:38:29Z
+
+Script done on 2026-10-31 10:38:29-05:00 [COMMAND_EXIT_CODE="0"]
