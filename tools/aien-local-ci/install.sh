@@ -37,11 +37,11 @@ OP_HOME=$(getent passwd "$OPERATOR" | cut -d: -f6)
 TOOLCHAIN=${AIEN_TOOLCHAIN:-1.98.1-aarch64-unknown-linux-gnu}
 MIRI_TOOLCHAIN=${AIEN_MIRI_TOOLCHAIN:-nightly-aarch64-unknown-linux-gnu}
 STATE="$OP_HOME/.local/state/aien-local-ci"
-# crumb source: aien-architecture main at this commit (2026-10-11, on GitHub main), file tools/crumb/crumb.c
-# (git blob 841f5317480b6643086061585c4309097975d8f9). Built with gcc 13.3.0 the binary's sha256 is
-# 22015e6b156e038ecea26ca8cf5c03f944d0c526282c4314fc5891751ffa67b0 (same as the operator's copy that day).
-CRUMB_COMMIT=94fffbcf88492c5a1c54211b5126c8a6c370a98d
-CRUMB_BLOB=841f5317480b6643086061585c4309097975d8f9
+# crumb source: aien-architecture commit (2026-10-18, RFC-0003 amendment 1 ACCEPTED, merge of aien-architecture#271),
+# file tools/crumb/crumb.c (git blob c272f293035bb3bdac416d1cfbf1212b96d49723). Built with gcc 13.3.0 the binary's sha256 is
+# 2fb09401f1e096821e90f83d8410fc00d251cac98fed748632055ad4e3905b79 (built on the Spark 2026-10-18).
+CRUMB_COMMIT=12ad0141b41ec67ef5aa51cb4e1815894c1083bb
+CRUMB_BLOB=c272f293035bb3bdac416d1cfbf1212b96d49723
 ARCH_CLONE=${AIEN_ARCH_CLONE:-$OP_HOME/workspace/aien-architecture}
 
 say() { printf '[install] %s\n' "$*"; }
