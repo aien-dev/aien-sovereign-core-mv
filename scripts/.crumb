@@ -1,19 +1,5 @@
 {
   "dir_path": "./scripts",
-  "extensions": {
-    "generated": {
-      "children": [],
-      "children_root": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "compiled_at": "2026-10-30T22:06:28Z",
-      "compiler": "crumb-compile/1",
-      "digest": "sha256:fa12f04c080591a877e7687b692aa5bcdfcd596e60054aec73bb4f2bd2f20b06",
-      "evidence_files": 0,
-      "evidence_root": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "files": 59,
-      "generated_at_commit": "e8b420cd38afc729770c5ee88cad201a3253c444",
-      "source_tree": "sha256:f0a1cf167402cf10c361cc70a2fe6881514ec5472d5e0d46919af89a9587a018"
-    }
-  },
   "parent": {
     "canonical": ".",
     "name": "aien-sovereign-core"
