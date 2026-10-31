@@ -49,6 +49,14 @@ fn write_sidecar(path: &Path, text: &str) -> std::io::Result<()> {
     .write_all(text.as_bytes())
 }
 
+/// Create a `.crumb` that does not exist yet. An existing entry, including a
+/// dangling symlink that `Path::exists` reports as absent, is left alone
+/// rather than written through (DRA-47).
+pub(crate) fn write_new_crumb(path: &Path, text: &str) -> std::io::Result<()> {
+    open_sidecar(path, fs::OpenOptions::new().write(true).create_new(true))?
+        .write_all(text.as_bytes())
+}
+
 pub const CRUMB_FILENAME: &str = ".crumb";
 pub const LOCAL_CRUMB_FILENAME: &str = ".crumb.local";
 
@@ -723,5 +731,41 @@ mod tests {
         let elsewhere = tempfile::tempdir().unwrap();
         let elsewhere = elsewhere.path().canonicalize().unwrap().join("sub");
         assert_eq!(bubble_parent(&elsewhere, &home, &workspaces), None);
+    }
+
+    /// DRA-47: `init_sandbox` writes a fresh worktree's `.crumb` only when
+    /// `exists()` is false, which a dangling symlink committed by the repo
+    /// also reports. The write must not follow either kind of link.
+    #[cfg(unix)]
+    #[test]
+    fn new_crumb_is_not_written_through_a_symlink() {
+        use std::os::unix::fs::symlink;
+        let outside = tempfile::tempdir_in("/dev/shm").unwrap();
+        let out = outside.path().canonicalize().unwrap();
+        let existing = out.join("existing");
+        std::fs::write(&existing, "VICTIM").unwrap();
+        let missing = out.join("missing");
+        let sandbox = tempfile::tempdir().unwrap();
+        let dangling = sandbox.path().join("dangling.crumb");
+        let linked = sandbox.path().join("linked.crumb");
+        symlink(&missing, &dangling).unwrap();
+        symlink(&existing, &linked).unwrap();
+        assert!(!dangling.exists(), "a dangling link reads as absent");
+
+        let _ = write_new_crumb(&dangling, "SANDBOX_CRUMB");
+        let _ = write_new_crumb(&linked, "SANDBOX_CRUMB");
+        let mut escaped = Vec::new();
+        if missing.symlink_metadata().is_ok() {
+            escaped.push(format!("created {}", missing.display()));
+        }
+        if std::fs::read_to_string(&existing).unwrap() != "VICTIM" {
+            escaped.push(format!("rewrote {}", existing.display()));
+        }
+        assert!(escaped.is_empty(), "{}", escaped.join("; "));
+
+        // Control: a plain absent path is created with the content.
+        let fresh = sandbox.path().join(".crumb");
+        write_new_crumb(&fresh, "SANDBOX_CRUMB").unwrap();
+        assert_eq!(std::fs::read_to_string(&fresh).unwrap(), "SANDBOX_CRUMB");
     }
 }

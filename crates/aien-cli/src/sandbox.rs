@@ -101,7 +101,7 @@ pub fn init_sandbox(branch_opt: Option<&str>) -> Result<Value, String> {
 }}"#,
             above
         );
-        let _ = fs::write(&crumb_path, crumb_content);
+        let _ = crate::crumbs::write_new_crumb(&crumb_path, &crumb_content);
     }
 
     Ok(json!({
