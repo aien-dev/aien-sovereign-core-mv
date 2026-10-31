@@ -1,0 +1,43 @@
+<|im_start|>system
+You are terse.
+
+# Tools
+
+You may call one or more functions to assist with the user query.
+
+You are provided with function signatures within <tools></tools> XML tags:
+<tools>
+{"function": {"description": "Read a file", "name": "read_file", "parameters": {"properties": {"path": {"type": "string"}}, "required": ["path"], "type": "object"}}, "type": "function"}
+{"function": {"description": "Wetter für eine Stadt", "name": "get_weather", "parameters": {"properties": {"city": {"type": "string"}, "days": {"type": "integer"}}, "required": ["city"], "type": "object"}}, "type": "function"}
+</tools>
+
+For each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:
+<tool_call>
+{"name": <function-name>, "arguments": <args-json-object>}
+</tool_call><|im_end|>
+<|im_start|>user
+Read /tmp/a.txt and give the weather in Zürich.<|im_end|>
+<|im_start|>assistant
+Checking both.
+<tool_call>
+{"name": "read_file", "arguments": {"path": "/tmp/a.txt"}}
+</tool_call>
+<tool_call>
+{"name": "get_weather", "arguments": {"city": "Zürich", "days": 2}}
+</tool_call><|im_end|>
+<|im_start|>user
+<tool_response>
+hello
+</tool_response>
+<tool_response>
+{"temp": 18}
+</tool_response><|im_end|>
+<|im_start|>assistant
+<tool_call>
+{"name": "read_file", "arguments": {"path": "/tmp/b.txt"}}
+</tool_call><|im_end|>
+<|im_start|>user
+<tool_response>
+world
+</tool_response><|im_end|>
+<|im_start|>assistant
