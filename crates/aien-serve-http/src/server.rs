@@ -755,6 +755,7 @@ fn run_readers(
         .iter()
         .map(|p| crate::engine::GroupJob {
             prompt: p.prompt_tokens.clone(),
+            marks: p.marks.clone(),
             params: p.params.clone(),
             cancel: Some(Arc::clone(&cancel)),
             test: p.test.clone(),

@@ -321,6 +321,8 @@ impl TestSwitches {
 #[derive(Debug, Clone)]
 pub struct GroupJob {
     pub prompt: Vec<u32>,
+    /// Prompt cache checkpoint hints (tool boundaries; sc L375, DRA-86); empty: none.
+    pub marks: Vec<usize>,
     pub params: GenerateParams,
     /// Set by the caller to stop this job even before it emits a token (a reader still taking in
     /// its part when the client leaves). `None`: only `on_token` returning `false` stops it.

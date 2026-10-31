@@ -764,6 +764,7 @@ impl Qwen36BatchDoor {
             .enumerate()
             .map(|(i, j)| Job {
                 prompt: j.prompt.clone(),
+                marks: j.marks.clone(),
                 params: j.params.clone(),
                 out: otx.clone(),
                 tag: i,

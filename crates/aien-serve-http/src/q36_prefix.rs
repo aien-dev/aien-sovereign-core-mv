@@ -381,6 +381,8 @@ impl<S: PoolSnap> PrefixPool<S> {
         snap_ok: impl Fn(&S) -> bool,
     ) -> Result<(), String> {
         open_private_dir(dir)?;
+        // The seal budget's per-store usage counts (aien-kv-store `SealKey::seal_file`).
+        open_private_dir(&dir.join(aien_kv_store::seal::USAGE_DIR_NAME))?;
         let t0 = Instant::now();
         let mut found: Vec<Loaded> = Vec::new();
         let rd = std::fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
@@ -760,7 +762,7 @@ fn write_file<S: PoolSnap>(
         file.extend_from_slice(&v.to_le_bytes());
     }
     file.extend_from_slice(&sb);
-    key.seal_file(&mut file)
+    key.seal_file(&dir.join(aien_kv_store::seal::USAGE_DIR_NAME), &mut file)
         .map_err(|e| format!("seal: {e:?}"))?;
     let tmp = dir.join(format!(".{name}.tmp"));
     let mut f = std::fs::OpenOptions::new()

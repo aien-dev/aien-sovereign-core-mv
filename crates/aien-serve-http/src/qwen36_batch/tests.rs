@@ -623,6 +623,7 @@ fn group_jobs() -> Vec<GroupJob> {
                 p.truncate(Q36_PREFILL_MIN - 1);
                 p
             },
+            marks: Vec::new(),
             params: greedy(n),
             cancel: None,
             test: TestSwitches::default(),
@@ -894,6 +895,7 @@ fn a_reader_that_fell_behind_fails_even_when_its_done_fits() {
     let fell = Arc::new(AtomicBool::new(false));
     let job = Job {
         prompt: vec![1, 2, 3],
+        marks: Vec::new(),
         params: greedy(10),
         out: otx,
         tag: 0,
