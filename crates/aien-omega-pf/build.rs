@@ -25,12 +25,19 @@
 //! `cfg(has_omega_pf)`: `omega_gpu_pf_qgemm` defined (quantiser, QMMA grouped GEMM, pf buffers).
 //! `cfg(has_omega_pattn)`: `omega_gpu_prefill_attn` defined (host-pointer prefill attention).
 //! `cfg(has_omega_pattn_dev)`: `omega_gpu_prefill_attn_dev` defined (device-pointer entry).
+//! `cfg(has_omega_pattn_mirror)`: `omega_gpu_prefill_attn_kv_mirror_invalidate` and `_forget`
+//! defined (the persistent KV mirror's coherence calls).
 //! Otherwise every call returns `Unavailable`; a stub never fails the build.
 use std::path::Path;
 use std::process::Command;
 
 fn main() {
-    for c in ["has_omega_pf", "has_omega_pattn", "has_omega_pattn_dev"] {
+    for c in [
+        "has_omega_pf",
+        "has_omega_pattn",
+        "has_omega_pattn_dev",
+        "has_omega_pattn_mirror",
+    ] {
         println!("cargo:rustc-check-cfg=cfg({c})");
     }
     println!("cargo:rustc-check-cfg=cfg(has_omega_pfhost)");
@@ -57,6 +64,13 @@ fn main() {
             println!("cargo:rustc-cfg=has_omega_pattn");
             if has("omega_gpu_prefill_attn_dev") {
                 println!("cargo:rustc-cfg=has_omega_pattn_dev");
+            }
+            if has("omega_gpu_prefill_attn_kv_mirror_invalidate")
+                && has("omega_gpu_prefill_attn_kv_mirror_forget")
+            {
+                println!("cargo:rustc-cfg=has_omega_pattn_mirror");
+            } else {
+                println!("cargo:warning=aien-omega-pf: {lib} has prefill attention but no kv_mirror_invalidate/forget; a rewound cache cannot drop stale mirror rows");
             }
         } else {
             println!("cargo:warning=aien-omega-pf: {lib} does not define omega_gpu_prefill_attn; prefill attention is stubbed");
@@ -95,6 +109,11 @@ fn main() {
                 println!("cargo:rustc-cfg=has_omega_pattn");
                 if t.contains("omega_gpu_prefill_attn_dev(") {
                     println!("cargo:rustc-cfg=has_omega_pattn_dev");
+                }
+                if t.contains("omega_gpu_prefill_attn_kv_mirror_invalidate(")
+                    && t.contains("omega_gpu_prefill_attn_kv_mirror_forget(")
+                {
+                    println!("cargo:rustc-cfg=has_omega_pattn_mirror");
                 }
             }
         }

@@ -134,7 +134,15 @@ impl KvStore for OmegaFusedKv {
         "fused"
     }
     fn truncate(&mut self, len: usize) {
-        // The cache keeps its bytes; positions past `len` are rewritten by later steps.
+        // The cache keeps its bytes; positions past `len` are rewritten by later steps. Those
+        // steps write the cache only, so omega's prefill-attention mirror must drop its copies
+        // of the forgotten rows first, or a later whole-prompt pass reads the old sequence's
+        // K/V there (mirror contract, omega_gpu_prefill_attn_api.h). Every cache write is at a
+        // layer's `filled` position, so this one call covers decode, the step_batch fallback
+        // and imports after a rewind.
+        if let Some(from) = rewritten_from(&self.filled, len) {
+            aien_omega_pf::kv_mirror_invalidate(&mut self.cache, from);
+        }
         for f in self.filled.iter_mut() {
             *f = (*f).min(len);
         }
@@ -256,5 +264,40 @@ impl KvAttention for OmegaFusedKv {
     }
     fn dgraph_commit(&mut self, pos: usize) {
         self.filled.iter_mut().for_each(|f| *f = pos + 1);
+    }
+}
+
+impl Drop for OmegaFusedKv {
+    fn drop(&mut self) {
+        // Mirrors are keyed by the layer's K plane address: a later cache allocated there would
+        // inherit stale rows. Runs before the cache field frees the planes.
+        aien_omega_pf::kv_mirror_forget(&mut self.cache);
+    }
+}
+
+/// The first position a truncate to `len` forgets in any layer, if it forgets one: rows from
+/// there on will be rewritten, so mirrored copies of them go stale.
+fn rewritten_from(filled: &[usize], len: usize) -> Option<usize> {
+    filled.iter().any(|&f| f > len).then_some(len)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::rewritten_from;
+
+    #[test]
+    fn a_rewind_below_the_stored_rows_invalidates_from_the_kept_prefix() {
+        // A: whole-prompt prefill of 40 tokens + 8 decoded; B keeps a 12-token prefix.
+        assert_eq!(rewritten_from(&[48; 4], 12), Some(12));
+        // One layer ahead of the others (mid-step) still forgets rows.
+        assert_eq!(rewritten_from(&[30, 30, 31, 30], 30), Some(30));
+        assert_eq!(rewritten_from(&[48; 4], 0), Some(0));
+    }
+
+    #[test]
+    fn keeping_every_stored_row_invalidates_nothing() {
+        assert_eq!(rewritten_from(&[48; 4], 48), None);
+        assert_eq!(rewritten_from(&[48; 4], 100), None);
+        assert_eq!(rewritten_from(&[], 0), None);
     }
 }
