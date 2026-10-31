@@ -1,0 +1,26 @@
+# cargo test --locked -j1 -p aien-cli on the tree of 4965d44c, 3 GiB scope; summary lines; cargo exit status 0
+     Running unittests src/lib.rs (/tmp/prfix/t688-target/debug/deps/aien_cli-740e8e57e1f1e529)
+test result: ok. 8 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 5.01s
+     Running unittests src/bin/aien-browser-mirror.rs (/tmp/prfix/t688-target/debug/deps/aien_browser_mirror-abe93f9b875094f9)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/main.rs (/tmp/prfix/t688-target/debug/deps/aien_cli-c8d9172c7065ecfc)
+test result: ok. 199 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 7.85s
+     Running tests/allen_concurrency_test.rs (/tmp/prfix/t688-target/debug/deps/allen_concurrency_test-01a10a3052cd4e0b)
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/compose_memory_recall_test.rs (/tmp/prfix/t688-target/debug/deps/compose_memory_recall_test-e5b8db85b0d08b40)
+test result: ok. 0 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/compose_ordinary_flow_test.rs (/tmp/prfix/t688-target/debug/deps/compose_ordinary_flow_test-7e50bf87d6ef5af3)
+test result: ok. 0 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/cpu_only_switch_test.rs (/tmp/prfix/t688-target/debug/deps/cpu_only_switch_test-7d335b1957e5e653)
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+     Running tests/desk_required_startup_test.rs (/tmp/prfix/t688-target/debug/deps/desk_required_startup_test-66a2e5b5b0402b41)
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.33s
+     Running tests/objective_record_test.rs (/tmp/prfix/t688-target/debug/deps/objective_record_test-06201f436c30ceee)
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+     Running tests/provenance_link_live_test.rs (/tmp/prfix/t688-target/debug/deps/provenance_link_live_test-c6c9f3a39819c580)
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/recovery_matrix_test.rs (/tmp/prfix/t688-target/debug/deps/recovery_matrix_test-d7c972bbb99a24a8)
+test result: ok. 0 passed; 0 failed; 12 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/test_cli_runtime_ipc.rs (/tmp/prfix/t688-target/debug/deps/test_cli_runtime_ipc-64b93dd255a8441e)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s

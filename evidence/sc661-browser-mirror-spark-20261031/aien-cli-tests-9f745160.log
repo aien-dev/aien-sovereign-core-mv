@@ -1,3 +1,4 @@
+# cargo test --locked -j1 -p aien-cli on the tree of 9f745160 (browser_mirror.rs blob d70c525d), 3 GiB scope; summary lines; cargo exit status 0
      Running unittests src/lib.rs (/tmp/prfix/t688-target/debug/deps/aien_cli-740e8e57e1f1e529)
 test result: ok. 8 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 5.03s
      Running unittests src/bin/aien-browser-mirror.rs (/tmp/prfix/t688-target/debug/deps/aien_browser_mirror-abe93f9b875094f9)

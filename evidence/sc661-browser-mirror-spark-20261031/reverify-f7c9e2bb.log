@@ -1,0 +1,57 @@
+== start 2026-10-31T18:39:29Z HEAD f7c9e2bb9e2d0e7dd092e3a3c281ee24e0f885ac
+== crates/aien-cli/src/browser_mirror.rs working blob d70c525d88dba31a6ea4bebb03215ca8e2fdbccc, at 9f745160 d70c525d88dba31a6ea4bebb03215ca8e2fdbccc
+== code changes vs HEAD: 0
+== processes with a mirror tag before: 0
+warning: aien-omega-gpu@0.1.0: aien-omega-gpu: no AIEN_OMEGA_DIR or AIEN_OMEGA_GPU_LIB, building the CPU stub
+warning: aien-omega-compose@0.1.0: aien-omega-compose: no AIEN_OMEGA_COMPOSE_DIR, AIEN_OMEGA_DIR or AIEN_OMEGA_COMPOSE_LIB, building the stub
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.81s
+== browser_mirror tests (real Chrome, --test-threads=1)
+warning: aien-omega-gpu@0.1.0: aien-omega-gpu: no AIEN_OMEGA_DIR or AIEN_OMEGA_GPU_LIB, building the CPU stub
+warning: aien-omega-compose@0.1.0: aien-omega-compose: no AIEN_OMEGA_COMPOSE_DIR, AIEN_OMEGA_DIR or AIEN_OMEGA_COMPOSE_LIB, building the stub
+test browser_mirror::tests::base64_roundtrip ... ok
+test browser_mirror::tests::cleanup_with_inherited_ignored_sigchld ... ignored, explicit isolated inherited-SIGCHLD qualification
+test browser_mirror::tests::dropping_chrome_reaps_every_helper ... ok
+test browser_mirror::tests::exact_private_profile_identifies_a_task_without_its_tag ... ok
+test browser_mirror::tests::stale_candidates_and_exited_pidfds_cannot_signal_a_stranger ... ok
+test browser_mirror::tests::stub_page_screenshot_and_eval ... ok
+test browser_mirror::tests::tag_sweep_matches_only_its_own_tag ... ok
+test browser_mirror::tests::undetected_child_does_not_extend_drop_past_cleanup_deadline ... ok
+test browser_mirror::tests::unknown_action_is_an_error ... ok
+test result: ok. 8 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 6.78s
+== isolated inherited SIGCHLD=SIG_IGN case
+test browser_mirror::tests::cleanup_with_inherited_ignored_sigchld ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.25s
+== processes with a mirror tag after tests: 0
+== SIGINT replay, before: /tmp/prfix/abm-4965d44c sha256 574b2d38f7641c40
+caller pid 2079200, SigIgn:	0000000001001004
+owned processes while running: 15
+caller state 4 s after SIGINT to its group: gone
+owned processes left: 17
+2079302 /opt/google/chrome/chrome --headless=new --remote-debugging-port=0 --user-data-dir=/tmp/aien-browser-mirror-2079200-1793
+2079315 cat 
+2079316 cat 
+2079367 /opt/google/chrome/chrome_crashpad_handler --monitor-self --monitor-self-annotation=ptype=crashpad-handler --database=/h
+2079371 /opt/google/chrome/chrome_crashpad_handler --no-periodic-tasks --monitor-self-annotation=ptype=crashpad-handler --databa
+2079380 /opt/google/chrome/chrome --type=zygote --no-zygote-sandbox --no-sandbox --headless=new --crashpad-handler-pid=2079367 -
+2079384 /opt/google/chrome/chrome --type=zygote --no-sandbox --headless=new --crashpad-handler-pid=2079367 --enable-crash-report
+2079502 /opt/google/chrome/chrome --type=gpu-process --no-sandbox --disable-dev-shm-usage --headless=new --ozone-platform=headle
+2079511 /opt/google/chrome/chrome --type=utility --utility-sub-type=network.mojom.NetworkService --lang=en-US --service-sandbox-
+2079606 /opt/google/chrome/chrome --type=utility --utility-sub-type=storage.mojom.StorageService --lang=en-US --service-sandbox-
+2079717 /opt/google/chrome/chrome --type=renderer --top-chrome-webui --crashpad-handler-pid=2079367 --enable-crash-reporter=, --
+2079772 /opt/google/chrome/chrome --type=renderer --crashpad-handler-pid=2079367 --enable-crash-reporter=, --noerrdialogs --user
+2079845 /opt/google/chrome/chrome --type=renderer --crashpad-handler-pid=2079367 --enable-crash-reporter=, --noerrdialogs --user
+2080042 /opt/google/chrome/chrome --type=renderer --crashpad-handler-pid=2079367 --enable-crash-reporter=, --noerrdialogs --user
+2085778 /opt/google/chrome/chrome --type=renderer --crashpad-handler-pid=2079367 --enable-crash-reporter=, --noerrdialogs --user
+2085786 /opt/google/chrome/chrome --type=renderer --crashpad-handler-pid=2079367 --enable-crash-reporter=, --noerrdialogs --user
+2085823 /opt/google/chrome/chrome --type=renderer --crashpad-handler-pid=2079367 --enable-crash-reporter=, --noerrdialogs --user
+caller exit status (wait): 130
+owned after cleanup: 0
+== SIGINT replay, this tree: /tmp/prfix/t688-target/debug/aien-browser-mirror
+caller pid 2093650, SigIgn:	0000000001001004
+owned processes while running: 15
+caller state 4 s after SIGINT to its group: gone
+owned processes left: 0
+caller exit status (wait): 130
+owned after cleanup: 0
+== processes with a mirror tag at end: 0
+== end 2026-10-31T18:39:59Z
