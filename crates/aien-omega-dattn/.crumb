@@ -1,0 +1,9 @@
+{
+  "invariants": [
+    "The attention shape rule is checked on the host before any chip call. Check: cargo test -p aien-omega-dattn --lib -- --exact tests::shape_rule_is_checked_on_the_host",
+    "The info struct layout matches the C struct. Check: cargo test -p aien-omega-dattn --lib -- --exact tests::info_layout_matches_the_c_struct"
+  ],
+  "name": "aien-omega-dattn",
+  "purpose": "FFI to omega's one-launch decode attention for Qwen3-30B-A3B (omega_gpu_decode_attn_api, OWN-30B cut 9)",
+  "schema_version": "1.0.0"
+}

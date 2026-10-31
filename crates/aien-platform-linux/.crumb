@@ -1,0 +1,8 @@
+{
+  "invariants": [
+    "An external buffer refuses null and empty memory. Check: cargo test -p aien-platform-linux --test external -- --exact external_buffer_refuses_null_and_empty"
+  ],
+  "name": "aien-platform-linux",
+  "purpose": "Linux and Grace Blackwell GB10 platform driver cell for the AIEN runtime",
+  "schema_version": "1.0.0"
+}

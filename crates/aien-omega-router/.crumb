@@ -1,0 +1,9 @@
+{
+  "invariants": [
+    "The router layer rule is checked on the host before any chip call. Check: cargo test -p aien-omega-router --lib -- --exact tests::layer_rule_is_checked_on_the_host",
+    "The info struct layout matches the C struct. Check: cargo test -p aien-omega-router --lib -- --exact tests::info_layout_matches_the_c_struct"
+  ],
+  "name": "aien-omega-router",
+  "purpose": "FFI to omega's one-launch MoE router for Qwen3-30B-A3B (omega_gpu_router_api, OWN-30B)",
+  "schema_version": "1.0.0"
+}

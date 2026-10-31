@@ -1,0 +1,8 @@
+{
+  "invariants": [
+    "The Rust FFI declarations match abi/rxc_host_abi.manifest. Check: cargo test -p aien-omega-compose --test abi_manifest -- --exact rust_ffi_matches_the_manifest"
+  ],
+  "name": "aien-omega-compose",
+  "purpose": "FFI to omega COMPOSITION-2 (librx_compose.a, rxc_host ABI): goals through J-Space, AEGIS and Cortex",
+  "schema_version": "1.0.0"
+}

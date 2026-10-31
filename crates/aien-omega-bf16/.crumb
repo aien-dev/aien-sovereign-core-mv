@@ -1,0 +1,8 @@
+{
+  "invariants": [
+    "Buffer lengths are checked on the host (ShapeMismatch) before any chip call. Check: cargo test -p aien-omega-bf16 --lib -- --exact tests::lengths_are_checked_before_the_chip"
+  ],
+  "name": "aien-omega-bf16",
+  "purpose": "FFI to omega's bf16 streaming GEMV for the Qwen3-30B-A3B lm_head (omega_gpu_bf16_gemv_api, OWN-30B)",
+  "schema_version": "1.0.0"
+}

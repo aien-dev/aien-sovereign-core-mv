@@ -1,0 +1,8 @@
+{
+  "invariants": [
+    "The column-window rule is checked on the host before any chip call. Check: cargo test -p aien-omega-moe --lib -- --exact tests::window_rule_is_checked_on_the_host"
+  ],
+  "name": "aien-omega-moe",
+  "purpose": "FFI to omega's column-window matmul over a resident bf16 tensor (omega_gpu_moe_api, OWN-30B)",
+  "schema_version": "1.0.0"
+}

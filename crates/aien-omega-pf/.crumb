@@ -1,0 +1,8 @@
+{
+  "invariants": [
+    "The host checks mirror the prefill API's spec rules. Check: cargo test -p aien-omega-pf --lib -- --exact tests::host_checks_mirror_the_spec_rules"
+  ],
+  "name": "aien-omega-pf",
+  "purpose": "FFI to omega's device-resident prefill API: FP8 activation quantiser, QMMA grouped GEMM and causal prefill attention (OWN-30B whole-prompt prefill)",
+  "schema_version": "1.0.0"
+}

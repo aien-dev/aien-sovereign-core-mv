@@ -1,0 +1,9 @@
+{
+  "invariants": [
+    "A Rust mirror whose field width differs from the pinned C header is caught. Check: cargo test -p aien-abi-conformance --test c_side -- --exact width_change_is_caught",
+    "A symbol missing from the linked archive is caught. Check: cargo test -p aien-abi-conformance --test c_side -- --exact missing_symbol_is_caught"
+  ],
+  "name": "aien-abi-conformance",
+  "purpose": "Checks the hand-written Rust mirrors of omega's C ABI against the pinned C headers and the linked archive (layouts, constants, signatures, symbols, artifact identity). No dependencies.",
+  "schema_version": "1.0.0"
+}

@@ -1,4 +1,8 @@
 {
+  "invariants": [
+    "With no pin record the identity gate refuses; it never adopts the subject it sees. Check: cargo test -p aien-allen --test identity_test -- --exact no_pin_means_refusal_not_adoption",
+    "A changed machine is refused, never rebound. Check: cargo test -p aien-allen --test identity_test -- --exact machine_change_is_refused_never_rebound"
+  ],
   "name": "aien-allen",
   "purpose": "ALLEN identity gate: resolve-only subject check, host pin record, deployment record (ADR 0035). Never provisions.",
   "schema_version": "1.0.0"

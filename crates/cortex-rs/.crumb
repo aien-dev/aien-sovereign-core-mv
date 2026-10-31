@@ -1,0 +1,9 @@
+{
+  "invariants": [
+    "HMAC-SHA256 matches RFC 4231 test case 1. Check: cargo test -p cortex-rs --lib -- --exact security::tests::test_hmac_sha256_rfc4231_case1",
+    "Credentials are masked in output and fingerprinted, never printed. Check: cargo test -p cortex-rs --lib -- --exact security::tests::test_credential_masking_and_fingerprint"
+  ],
+  "name": "cortex-rs",
+  "purpose": "Sovereign native memory and knowledge engine for Atlas and AIEN",
+  "schema_version": "1.0.0"
+}

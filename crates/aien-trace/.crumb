@@ -1,0 +1,9 @@
+{
+  "invariants": [
+    "Serialized trace events carry no content field names. Check: cargo test -p aien-trace --lib -- --exact tests::serialized_event_has_no_content_field_names",
+    "Trace refs refuse absolute and parent paths. Check: cargo test -p aien-trace --lib -- --exact tests::refs_refuse_absolute_and_parent_paths"
+  ],
+  "name": "aien-trace",
+  "purpose": "Correlation-only execution trace events: ids, bounded sinks and run reconstruction. Observational, never evidence or authorization.",
+  "schema_version": "1.0.0"
+}
