@@ -1,0 +1,200 @@
+
+running 93 tests
+test chip_reservation::tests::holders_are_flock_owners_on_that_inode_only ... ok
+test chip_reservation::tests::ancestors_start_at_the_parent_and_exclude_self ... ok
+test chip_reservation::tests::without_the_marker_the_server_takes_its_own_lock ... ok
+test codec::tests::byte_codec_renders_turns_and_refuses_tool ... ok
+test codec::tests::byte_codec_round_trips_and_marks_partial_utf8 ... ok
+test decode_timeline::tests::dropping_one_record_is_red ... ok
+test decode_timeline::tests::dropping_one_device_span_is_red ... ok
+test decode_timeline::tests::exact_head_is_split ... ok
+test engine::tests::stub_honours_max_new_tokens_and_cancel ... ok
+test engine::tests::stub_refuses_empty_or_oversized_prompt ... ok
+test decode_timeline::tests::token_bends_and_slice ... ok
+test decode_timeline::tests::record_without_submits_reads_as_zero ... ok
+test engine::tests::stub_replays_until_stop_id ... ok
+test decode_timeline::tests::summary_lists_every_beat ... ok
+test kv_persist::tests::every_identity_input_moves_the_namespace ... ok
+test kv_persist::tests::checkpoint_digest_accepts_regular_file_and_rejects_shard_symlink ... ok
+test decode_timeline::tests::overlap_and_gap_are_red ... ok
+test decode_timeline::tests::token_summary_covers_the_slice_only ... ok
+test decode_timeline::tests::dropping_one_host_span_is_red ... ok
+test kv_persist::tests::the_namespace_layout_is_the_pool_layout ... ok
+test kv_persist::tests::untrusted_builds_and_negative_controls_refuse ... ok
+test omega_engine::tests::gpu_lock_is_exclusive_and_released_on_drop ... ok
+test omega_engine::tests::mem_available_reads_proc ... ok
+test omega_engine::tests::prefill_mode_defaults_on_and_env_switches_off ... ok
+test qwen36_batch::tests::a_group_larger_than_the_door_is_refused_whole ... ok
+test decode_timeline::tests::launch_timeline_takes_drop_only ... ok
+test qwen36_batch::tests::a_group_job_stops_on_the_callers_flag_while_prefilling ... ok
+test decode_timeline::tests::complete_beats_are_green ... ok
+test qwen36_batch::tests::a_reader_that_fell_behind_fails_even_when_its_done_fits ... ok
+test qwen36_batch::tests::a_reply_reports_total_chip_and_host_overhead ... ok
+test qwen36_batch::tests::a_reworded_next_turn_restores_the_turn_header_copy ... ok
+test qwen36_batch::tests::a_negative_control_leaves_no_state_for_a_later_request ... ok
+test qwen36_batch::tests::a_group_waits_for_its_rows_then_joins_whole ... ok
+test qwen36_batch::tests::a_next_turn_continues_its_row ... ok
+test qwen36_batch::tests::decode_timeline_refused_without_stamps ... ok
+test qwen36_batch::tests::cancel_frees_the_row_and_stop_ends ... ok
+test qwen36_batch::tests::decode_timeline_off_never_asks ... ok
+test qwen36_batch::tests::load_reads_memory_after_the_lock_and_before_the_upload ... ok
+test qwen36_batch::tests::load_without_the_lock_reads_no_memory_and_uploads_nothing ... ok
+test qwen36_batch::tests::load_refused_after_the_wait_releases_the_lock_and_uploads_nothing ... ok
+test qwen36_batch::tests::missing_logits_fail_the_request ... ok
+test chip_reservation::tests::marker_is_refused_unless_an_ancestor_holds_the_canonical_lock ... ok
+test qwen36_batch::tests::no_switches_is_the_served_path_on_a_stepper_without_them ... ok
+test qwen36_batch::tests::decode_timeline_records_every_single_row_beat ... ok
+test qwen36_batch::tests::a_group_of_eight_joins_in_one_beat_and_keeps_its_order ... ok
+test qwen36_batch::tests::a_row_swap_switch_trades_two_conversations_and_both_go_red ... ok
+test qwen36_batch::tests::the_switch_names_round_trip_from_json ... ok
+test qwen36_batch::tests::seeds_spread_at_t07_through_the_batch_door ... ok
+test qwen38_engine::tests::low_memory_after_the_wait_refuses_and_releases_the_lock ... ok
+test qwen38_engine::tests::memory_is_read_after_the_lock_is_taken ... ok
+test qwen38_engine::tests::no_lock_means_memory_is_never_read ... ok
+test qwen38_engine::tests::one_byte_short_is_refused ... ok
+test readers::tests::cuts_prefer_paragraph_boundaries ... ok
+test readers::tests::long_input_is_eight_equal_parts_covering_every_line_with_overlap ... ok
+test readers::tests::long_user_message_connect_starts_with_the_request ... ok
+test readers::tests::map_body_carries_system_question_and_its_part_only ... ok
+test readers::tests::notes_are_cleaned_and_the_preface_is_collapsed ... ok
+test qwen36_batch::tests::a_mutant_switch_changes_only_its_own_row ... ok
+test readers::tests::one_huge_line_is_still_cut_into_eight ... ok
+test readers::tests::short_input_takes_the_plain_path ... ok
+test sampling::tests::bench_top_k ... ignored
+test sampling::tests::chip_greedy_draw_records_as_a_host_greedy_draw ... ok
+test readers::tests::short_question_and_long_tool_result_keep_the_question_and_the_tools ... ok
+test sampling::tests::mutant_variable_is_refused_without_debug_assertions ... ok
+test sampling::tests::greedy_is_argmax ... ok
+test sampling::tests::record_counts_kept_sets_and_modes ... ok
+test sampling::tests::same_seed_same_token ... ok
+test sampling::tests::seeds_spread_and_mutants_break_the_spread ... ok
+test sampling::tests::top_k_never_picks_outside_the_k_best ... ok
+test sampling::tests::top_k_selection_matches_full_sort_random_and_tied ... ok
+test sampling::tests::top_k_ties_at_cutoff_keep_lower_token_id ... ok
+test server::tests::busy_after_the_readers_event_is_the_same_503 ... ok
+test sampling::tests::sampled_tokens_and_record_match_with_reference_mask ... ok
+test server::tests::busy_first_is_a_503_with_retry_after ... ok
+test text::tests::multibyte_characters_are_never_split ... ok
+test text::tests::no_stops_passes_everything ... ok
+test text::tests::stop_string_truncates_and_holds_back_prefix ... ok
+test tools::tests::parses_json_form ... ok
+test tools::tests::parses_xml_call_with_text_before ... ok
+test tools::tests::partial_open_hold_back ... ok
+test qwen36_batch::tests::strokes_off_and_exact_head_off_equal_the_served_path ... ok
+test tools::tests::plain_reply_has_no_calls ... ok
+test tools::tests::tojson_matches_python_separators ... ok
+test tools::tests::parses_two_calls_and_multiline_value ... ok
+test tools::tests::tool_responses_fold ... ok
+test tools::tests::renders_round_trip_layout ... ok
+test qwen36_batch::tests::row_swap_mutant_is_caught ... ok
+test omega_engine::tests::queued_lock_waits_its_turn_and_gives_up_cleanly ... ok
+test qwen36_batch::tests::the_graphs_greedy_token_equals_the_host_argmax_path ... ok
+test qwen36_batch::tests::token_receipt_at_one_and_eight_conversations ... ok
+test qwen36_batch::tests::long_prompts_go_in_as_chunks_and_keep_the_turn_header_copy ... ok
+test qwen36_batch::tests::a_reader_that_stops_reading_is_dropped_and_the_others_finish ... ok
+test qwen36_batch::tests::every_row_equals_the_request_alone ... ok
+
+test result: ok. 92 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.95s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 2 tests
+test gpu_busy_is_an_openai_error_envelope ... ok
+test tokenizing_does_not_block_the_runtime ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 17 tests
+test an_unsafe_store_dir_refuses_and_runs_plain ... ok
+test a_missing_or_malformed_key_refuses_and_runs_plain ... ok
+test a_longer_ram_prefix_is_not_replaced_by_the_store ... ok
+test health_reports_the_persistence_counters_when_on ... ok
+test a_corrupted_store_file_is_never_served ... ok
+test a_graceful_shutdown_releases_the_engine_and_flushes_the_parks ... ok
+test the_test_fault_spec_is_parsed_strictly ... ok
+test a_write_interrupted_before_publish_is_never_served ... ok
+test a_wrong_key_is_never_served ... ok
+test switch_off_reads_only_the_store_dir_and_changes_nothing ... ok
+test the_last_prompt_token_is_always_recomputed ... ok
+test unknown_omega_switches_and_the_mutants_refuse_persistence ... ok
+test park_then_restart_then_restore_equals_the_uninterrupted_run ... ok
+test a_turn_larger_than_the_park_and_restore_budgets_is_parked_and_restored_in_full ... ok
+test a_park_that_lands_after_the_conversation_moved_on_is_harmless ... ok
+test each_identity_input_changed_alone_is_never_served ... ok
+test a_restore_that_completes_after_its_timeout_is_never_served ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 14.41s
+
+
+running 2 tests
+test fused_cache_round_trip_cost_and_restore_latency_on_the_chip ... ignored, chip-only: loads the 30B checkpoint on omega; run by hand per the #514 plan
+test restored_turn_two_equals_the_uninterrupted_turn_two_on_the_chip ... ignored, chip-only: loads the 30B checkpoint on omega; run via scripts/own30b-pkv-chip-check.sh
+
+test result: ok. 0 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 16 tests
+test non_loopback_bind_is_refused ... ok
+test sampling_gate::repro_seeds_are_distinct_and_a_flat_choice_spreads ... ok
+test models_lists_the_one_served_id ... ok
+test bad_requests_get_openai_error_json ... ok
+test prompt_that_fills_the_context_is_refused ... ok
+test inference_requires_authorization_and_local_json_origin ... ok
+test saturated_request_does_not_read_body_or_invoke_codec ... ok
+test non_stream_completion_has_content_usage_and_finish ... ok
+test stream_chunks_parse_and_end_with_done ... ok
+test stop_sequences_and_max_tokens_apply ... ok
+test sampling_gate::the_stream_carries_the_record_in_its_last_usage ... ok
+test sampling_gate::a_server_chosen_seed_is_echoed_and_replays ... ok
+test sampling_gate::an_engine_that_ignores_the_seed_fails_spread ... ok
+test sampling_gate::an_engine_that_is_always_greedy_fails_spread_and_passes_greedy ... ok
+test second_request_while_busy_is_rejected_then_accepted ... ok
+test sampling_gate::honest_sampler_passes_a_b_c_and_records_every_draw ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.65s
+
+
+running 7 tests
+test show_notes_puts_a_collapsed_preface_before_the_answer ... ok
+test a_short_input_on_the_readers_id_takes_the_plain_path ... ok
+test a_long_tool_result_is_read_and_the_answer_can_call_a_tool ... ok
+test models_lists_the_readers_id_beside_the_plain_one ... ok
+test a_long_input_is_read_by_eight_readers_in_one_group_and_the_notes_come_back ... ok
+test streaming_sends_progress_then_the_notes_then_the_answer ... ok
+test fewer_free_rows_mean_fewer_parts_and_one_engine_reads_in_turn ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+
+running 5 tests
+test streamed_thinking_reply_sends_reasoning_deltas_first ... ok
+test aien_test_switches_are_refused_by_an_engine_without_them ... ok
+test thinking_off_keeps_everything_as_content_and_ids_stay_opt_in ... ok
+test server_default_thinking_off_applies_unless_the_request_asks ... ok
+test thinking_reply_splits_into_reasoning_and_answer ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+
+running 1 test
+test sigterm_shuts_down_cleanly_and_exits_zero ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+
+running 2 tests
+test version_prints_build_identity_and_exits_zero ... ok
+test version_wins_over_other_flags_and_loads_nothing ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

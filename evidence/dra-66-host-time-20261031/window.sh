@@ -22,16 +22,26 @@
 # Gates (every one writes $EV/gate-<name>.json with window id, binary sha256, sovereign-core
 # commit, lock holder, start/end, its files' sha256 and its status). Each gate has a hard cap;
 # a gate starts only if the lease has at least its cap left, otherwise it and the rest are
-# NOT_RUN. Caps sum to 1055 s of the 1200 s lease (Wolfram, see PROTOCOL.md).
-#   mutant4-red      cap 270 s  server with AIEN_Q36_TEST_MUTANT=4 must DIFFER from the golden
+# NOT_RUN. Caps with the 120 s outer row sum to 1071 s of the 1200 s lease (Wolfram, see
+# PROTOCOL.md). Server loads are capped at 150 s (measured 39-78 s).
+#   mutant4-red      cap 240 s  server with AIEN_Q36_TEST_MUTANT=4 must DIFFER from the golden
 #                               ids; if it does not, the window stops (exit 4).
-#   golden-identity  cap 240 s  honest server, per-token receipt on: golden IDENTICAL.
-#   receipt-1conv    cap 180 s  3 sequential greedy replies of 256 tokens.
-#   receipt-8conv    cap 120 s  8 concurrent greedy replies of 256 tokens.
-#   seed-t07         cap  90 s  seed 1, seed 2, seed 1 again at T=0.7, 64 tokens.
-#   checker          cap  35 s  server stopped; --check-decode-timeline exit 0, two --drop red
-#                               controls exit 1, summary.wl for Main's Wolfram 0.5 ms gate.
-# Everything lands in $EV; receipt.json collects every gate.
+#   golden-identity  cap 210 s  honest server, per-token receipt on: golden IDENTICAL. Records
+#                               so far = A.
+#   receipt-1conv    cap  92 s  3 sequential greedy replies of 256 tokens. Records so far = B;
+#                               records A..B are the 0.5 ms gate's beats.
+#   receipt-8conv    cap  62 s  8 concurrent greedy replies of 256 tokens.
+#   seed-t07         cap  60 s  seed 1, seed 2, seed 1 again at T=0.7, 64 tokens.
+#   stamps-1conv     cap 242 s  token server stopped; honest server with the stamped launch
+#                               timeline; 1 greedy reply of 128 tokens; stopped. Its records give
+#                               submit + poll = chip_ns - dev_span, the host time chip_ns holds.
+#   checker          cap  45 s  --check-decode-timeline on both files: exit 0; red controls
+#                               (two token drops, --bend A+1:chip, a launch drop) exit 1; the
+#                               synthetic --bend host:600000 receipt checks green. gate.wl and
+#                               gate-red.wl for Main's Wolfram 0.5 ms gate (red file first: False).
+# Everything lands in $EV; receipt.json collects every gate with an overall status (FAIL if any
+# gate failed, else NOT_RUN if any did not run, else PASS); the script exits 4 on a FAIL. The
+# 0.5 ms verdict is Main's Wolfram evaluation, never part of that status.
 set -u
 umask 022
 
@@ -130,7 +140,9 @@ mkdir -p "$EV" || { echo "NOT_RUN: cannot create $EV"; exit 3; }
 # ---- preconditions (no chip contact) ----
 [ -e "$LOCK" ] || not_run "$LOCK missing"
 ino=$(stat -c %i "$LOCK")
-holders=$(awk -v ino="$ino" '$2 == "FLOCK" && $4 == "WRITE" { split($6, a, ":"); if (a[3] == ino) print $5 }' /proc/locks | sort -u)
+dev=$(printf '%02x:%02x' $(stat -c '%Hd %Ld' "$LOCK"))
+# /proc/locks field 6 is MAJ:MIN:INODE (hex device): match the device as well as the inode.
+holders=$(awk -v ino="$ino" -v dev="$dev" '$2 == "FLOCK" && $4 == "WRITE" { n = split($6, a, ":"); if (a[n] == ino && a[1] ":" a[2] == dev) print $5 }' /proc/locks | sort -u)
 anc=" "
 p=$$
 while [ "$p" -gt 1 ]; do
@@ -184,14 +196,20 @@ finish() {
   jq -s --arg window_id "$SPARK_WINDOW" --arg bin_sha256 "$BIN_SHA" --arg sc_commit "$BIN_COMMIT" \
     --argjson elapsed_s "$(elapsed)" \
     '{schema: "aien.dra66-window/1", window_id: $window_id, bin_sha256: $bin_sha256,
-      sc_commit: $sc_commit, elapsed_s: $elapsed_s, gates: .}' \
+      sc_commit: $sc_commit, elapsed_s: $elapsed_s,
+      status: (if any(.[]; .status == "FAIL") then "FAIL"
+               elif any(.[]; .status == "NOT_RUN") then "NOT_RUN" else "PASS" end),
+      gates: .}' \
     $(ls -tr "$EV"/gate-*.json 2> /dev/null) > "$EV/receipt.json"
-  board "GPU-END dra-66 window.sh window $SPARK_WINDOW $EV (elapsed $(elapsed) s; compute apps after: $(tr '\n' ';' < "$EV/compute-apps-after.txt"))"
+  local st
+  st=$(jq -r '.status' "$EV/receipt.json" 2> /dev/null)
+  board "GPU-END dra-66 window.sh window $SPARK_WINDOW $EV (status ${st:-unknown}; elapsed $(elapsed) s; compute apps after: $(tr '\n' ';' < "$EV/compute-apps-after.txt"))"
+  [ "$st" = FAIL ] && exit 4
 }
 board() { echo "$(ts) DRA66Host: $*" >> "$BOARD"; }
 
 # start_server LOG [ENV=VAL ...]: the live 18091 flags on a loopback test port, inheriting the
-# chip lock this script's flock(1) holds; at most 180 s to health (measured loads 39-78 s).
+# chip lock this script's flock(1) holds; at most 150 s to health (measured loads 39-78 s).
 start_server() {
   local log=$1
   shift
@@ -200,13 +218,13 @@ start_server() {
     --max-context 49152 --max-tokens-cap 16384 --thinking off --batch-slots 8 \
     > "$log" 2>&1 &
   SERVER_PID=$!
-  local deadline=$(( $(date +%s) + 180 ))
+  local deadline=$(( $(date +%s) + 150 ))
   while [ "$(date +%s)" -lt "$deadline" ]; do
     kill -0 "$SERVER_PID" 2> /dev/null || { say "server exited during load: $(tail -n 2 "$log" | tr '\n' ' ')"; SERVER_PID=; return 1; }
     curl -s -m 2 127.0.0.1:$PORT/health > /dev/null && break
     sleep 1
   done
-  curl -s -m 2 127.0.0.1:$PORT/health > /dev/null || { say "server not healthy in 180 s"; stop_server; return 1; }
+  curl -s -m 2 127.0.0.1:$PORT/health > /dev/null || { say "server not healthy in 150 s"; stop_server; return 1; }
   grep -q "chip reservation inherited from ancestor pid $HOLDER" "$log" \
     || { say "server did not report the inherited reservation of pid $HOLDER"; stop_server; return 1; }
   local l
@@ -242,7 +260,7 @@ trap 'finish' EXIT
 trap 'say "interrupted"; exit 4' INT TERM
 
 # ---- mutant4-red: the negative control goes first ----
-begin 270 mutant4-red
+begin 240 mutant4-red
 start_server "$EV/server-mutant4.log" AIEN_Q36_TEST_MUTANT=4 \
   || { gate mutant4-red NOT_RUN "mutant server did not come up" "$EV/server-mutant4.log"; exit 3; }
 m4=$(golden mutant4)
@@ -256,30 +274,34 @@ fi
 
 # ---- golden-identity: honest server, per-token receipt on ----
 TOK=$EV/tokens.jsonl
-begin 240 golden-identity
+begin 210 golden-identity
 start_server "$EV/server-tokens.log" AIEN_Q36_DECODE_TIMELINE="$TOK" AIEN_Q36_DECODE_TIMELINE_KIND=token \
   || { gate golden-identity NOT_RUN "honest server did not come up" "$EV/server-tokens.log"; exit 3; }
 grep -E 'per-token receipt' "$EV/server-tokens.log" | tee -a "$EV/window.log"
 g=$(golden honest)
+sleep 2 # the door closes the golden's last record at idle; every record is flushed as written
+A=$(wc -l < "$TOK" 2> /dev/null || echo 0)
 [ "$g" = IDENTICAL ] && st=PASS || st=FAIL
-gate golden-identity "$st" "honest golden $g (must be IDENTICAL)" "$EV/golden-honest.json" "$GOLD"
+gate golden-identity "$st" "honest golden $g (must be IDENTICAL); receipt records so far A=$A" "$EV/golden-honest.json" "$GOLD" "$TOK"
 
-# ---- receipt-1conv ----
-begin 180 receipt-1conv
+# ---- receipt-1conv: records A..B are the 0.5 ms gate's beats ----
+begin 92 receipt-1conv
 ok=PASS
 for i in 1 2 3; do
-  r=$(chat "$EV/solo-$i.json" "$COUNT" 256 0 0 60) || ok=FAIL
+  r=$(chat "$EV/solo-$i.json" "$COUNT" 256 0 0 30) || ok=FAIL
   say "solo $i: tokens wall_s = $r"
 done
 sleep 2 # the door closes the spell at idle
-gate receipt-1conv "$ok" "3 sequential greedy replies of 256 tokens; receipt records so far $(wc -l < "$TOK" 2> /dev/null || echo 0)" \
+B=$(wc -l < "$TOK" 2> /dev/null || echo 0)
+[ "$B" -gt $(( A + 1 )) ] || ok=FAIL
+gate receipt-1conv "$ok" "3 sequential greedy replies of 256 tokens; receipt records A..B = $A..$B" \
   "$EV"/solo-*.json "$TOK"
 
 # ---- receipt-8conv ----
-begin 120 receipt-8conv
+begin 62 receipt-8conv
 pids=()
 for i in 1 2 3 4 5 6 7 8; do
-  chat "$EV/eight-$i.json" "Count from $((i * 50)) to $((i * 50 + 300)) in English words, one number per line, nothing else." 256 0 0 110 \
+  chat "$EV/eight-$i.json" "Count from $((i * 50)) to $((i * 50 + 300)) in English words, one number per line, nothing else." 256 0 0 60 \
     > "$EV/eight-$i.txt" &
   pids+=($!)
 done
@@ -291,8 +313,8 @@ gate receipt-8conv "$ok" "8 concurrent greedy replies of 256 tokens; receipt rec
   "$EV"/eight-*.json "$TOK"
 
 # ---- seed-t07 ----
-begin 90 seed-t07
-for s in 1 2 1b; do chat "$EV/seed-$s.json" "$COUNT" 64 0.7 "${s%b}" 30 > /dev/null; done
+begin 60 seed-t07
+for s in 1 2 1b; do chat "$EV/seed-$s.json" "$COUNT" 64 0.7 "${s%b}" 20 > /dev/null; done
 ids() { jq -c '.usage.aien_token_ids' "$EV/seed-$1.json" 2> /dev/null; }
 if [ "$(ids 1)" = "$(ids 1b)" ] && [ "$(ids 1)" != "$(ids 2)" ] && [ -n "$(ids 1)" ] && [ "$(ids 1)" != null ]; then
   gate seed-t07 PASS "seed 1 repeats, seed 2 differs" "$EV"/seed-*.json
@@ -300,21 +322,64 @@ else
   gate seed-t07 FAIL "seed1 $(ids 1 | cut -c1-60) / seed2 $(ids 2 | cut -c1-60) / seed1b $(ids 1b | cut -c1-60)" "$EV"/seed-*.json
 fi
 
-# ---- checker: server stopped (the recorder writes its last record at finish) ----
-begin 35 checker
+# ---- stamps-1conv: the submit + marker poll share chip_ns holds (MAJOR 1 of the review) ----
+# chip_ns runs from the first submit to the last completion marker read back on the host clock,
+# so host_overhead_ns = total_ns - chip_ns is a lower bound. The stamped launch timeline at one
+# conversation (the same lone-row one-row graph as the token arm) gives chip_ns - dev_span per
+# token; the stamps' chip cost sits in both and cancels.
+STA=$EV/stamps.jsonl
+begin 242 stamps-1conv
 stop_server
+start_server "$EV/server-stamps.log" AIEN_Q36_DECODE_TIMELINE="$STA" \
+  || { gate stamps-1conv NOT_RUN "stamped server did not come up" "$EV/server-stamps.log"; exit 3; }
+grep -E 'decode timeline' "$EV/server-stamps.log" | tee -a "$EV/window.log"
+ok=PASS
+r=$(chat "$EV/stamped.json" "$COUNT" 128 0 0 30) || ok=FAIL
+say "stamped: tokens wall_s = $r"
+sleep 2
+stop_server
+ns=$(wc -l < "$STA" 2> /dev/null || echo 0)
+[ "$ns" -gt 0 ] || ok=FAIL
+gate stamps-1conv "$ok" "1 greedy reply of 128 tokens, stamped launch timeline; $ns records" \
+  "$EV/stamped.json" "$STA" "$EV/server-stamps.log"
+
+# ---- checker: both servers stopped ----
+begin 45 checker
+chk() { "$BIN" --check-decode-timeline "$@"; }
 grep -E 'spell over|per-token receipt' "$EV/server-tokens.log" > "$EV/spells.txt"
-"$BIN" --check-decode-timeline "$TOK" > "$EV/summary.wl" 2> "$EV/check.txt"
+n=$(wc -l < "$TOK" 2> /dev/null || echo 0)
+chk "$TOK" > "$EV/summary-all.wl" 2> "$EV/check.txt"
 c0=$?
 echo "check exit $c0 (must be 0)" >> "$EV/check.txt"
-"$BIN" --check-decode-timeline "$TOK" --drop 0:record:0 > /dev/null 2> "$EV/red-drop-first.txt"
+chk "$TOK" --slice "$A:$B" > "$EV/summary-1conv.wl" 2> "$EV/check-1conv.txt"
 c1=$?
-echo "red control (drop the first record) exit $c1 (must be 1)" >> "$EV/red-drop-first.txt"
-n=$(wc -l < "$TOK" 2> /dev/null || echo 0)
-"$BIN" --check-decode-timeline "$TOK" --drop $(( n / 2 )):record:0 > /dev/null 2> "$EV/red-drop-middle.txt"
+echo "check --slice $A:$B exit $c1 (must be 0)" >> "$EV/check-1conv.txt"
+chk "$TOK" --drop 0:record:0 > /dev/null 2> "$EV/red-drop-first.txt"
 c2=$?
-echo "red control (drop record $(( n / 2 ))) exit $c2 (must be 1)" >> "$EV/red-drop-middle.txt"
-[ "$c0" = 0 ] && [ "$c1" = 1 ] && [ "$c2" = 1 ] && st=PASS || st=FAIL
-gate checker "$st" "$n records; check exit $c0, drop-first exit $c1, drop-middle exit $c2; Wolfram gate = first query of summary.wl" \
-  "$TOK" "$EV/summary.wl" "$EV/check.txt" "$EV/red-drop-first.txt" "$EV/red-drop-middle.txt" "$EV/spells.txt" "$EV/server-tokens.log"
+echo "red control (drop the first record) exit $c2 (must be 1)" >> "$EV/red-drop-first.txt"
+chk "$TOK" --drop $(( n / 2 )):record:0 > /dev/null 2> "$EV/red-drop-middle.txt"
+c3=$?
+echo "red control (drop record $(( n / 2 ))) exit $c3 (must be 1)" >> "$EV/red-drop-middle.txt"
+chk "$TOK" --bend $(( A + 1 )):chip > /dev/null 2> "$EV/red-bend-chip.txt"
+c4=$?
+echo "red control (record $(( A + 1 )) chip_ns + 1, host share kept) exit $c4 (must be 1)" >> "$EV/red-bend-chip.txt"
+chk "$TOK" --bend host:600000 --slice "$A:$B" > "$EV/summary-red-host.wl" 2> "$EV/red-bend-host.txt"
+c5=$?
+echo "synthetic receipt (every beat 0.6 ms more host) exit $c5 (must be 0; its Wolfram verdict must be False)" >> "$EV/red-bend-host.txt"
+chk "$STA" > "$EV/summary-stamps.wl" 2> "$EV/check-stamps.txt"
+c6=$?
+echo "check exit $c6 (must be 0)" >> "$EV/check-stamps.txt"
+chk "$STA" --drop 0:record:0 > /dev/null 2> "$EV/red-stamps-drop.txt"
+c7=$?
+echo "red control (drop the first stamped record) exit $c7 (must be 1)" >> "$EV/red-stamps-drop.txt"
+# Main's Wolfram inputs: the token slice, then the stamped timeline, which ends with the gate.
+cat "$EV/summary-1conv.wl" "$EV/summary-stamps.wl" > "$EV/gate.wl"
+cat "$EV/summary-red-host.wl" "$EV/summary-stamps.wl" > "$EV/gate-red.wl"
+codes="$c0 $c1 $c2 $c3 $c4 $c5 $c6 $c7"
+[ "$codes" = "0 0 1 1 1 0 0 1" ] && st=PASS || st=FAIL
+gate checker "$st" "$n token records, slice $A..$B, $ns stamped records; exits $codes (want 0 0 1 1 1 0 0 1); Wolfram: gate-red.wl last query False first, then gate.wl" \
+  "$TOK" "$STA" "$EV/gate.wl" "$EV/gate-red.wl" "$EV/summary-all.wl" "$EV/summary-1conv.wl" "$EV/summary-red-host.wl" \
+  "$EV/summary-stamps.wl" "$EV/check.txt" "$EV/check-1conv.txt" "$EV/red-drop-first.txt" "$EV/red-drop-middle.txt" \
+  "$EV/red-bend-chip.txt" "$EV/red-bend-host.txt" "$EV/check-stamps.txt" "$EV/red-stamps-drop.txt" "$EV/spells.txt" \
+  "$EV/server-tokens.log"
 say "done in $(elapsed) s, lease left $(left) s"

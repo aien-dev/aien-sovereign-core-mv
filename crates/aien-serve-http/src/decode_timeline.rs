@@ -16,7 +16,7 @@
 //! - `dev`: one span per launch, contiguous, on the chip's PTIMER. That is a different clock, so
 //!   only durations are compared with host spans and never instants.
 //!
-//! [`check`] holds a file to that shape, and `q36-decode-timeline-check` runs it and prints a
+//! [`check`] holds a file to that shape, and `aien-serve-http --check-decode-timeline` runs it and prints a
 //! Wolfram-ready summary. Each stamp sits after a launch's wait-for-idle and adds a timestamp
 //! report, so the stamps cost chip time: a timeline run is never a speed receipt.
 //!
@@ -28,6 +28,12 @@
 //! `host_overhead_ns = total_ns - chip_ns`. `prompt_rows > 0` marks a beat a joining prompt rode
 //! in. [`check_tokens`] holds such a file to its shape; the same `--check-decode-timeline` CLI
 //! dispatches on the schema.
+//!
+//! `chip_ns` is the graph's host-clock span from the first submit to the last completion marker
+//! read back, so it also holds host work: the queue submit and the marker poll. The per-token
+//! `host_overhead_ns` is therefore a LOWER bound of the host time. The DRA-66 gate
+//! ([`GATE_WL`]) adds the submit + poll share `chip_ns - dev_span`, measured on a stamped
+//! one-conversation launch timeline of the same window, to that lower bound.
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
@@ -164,6 +170,11 @@ pub struct Record {
     pub step: u64,
     /// The graph's stats for the token.
     pub launches: u32,
+    /// Submissions of the token's list (1 normally; 0 in a file written before this field).
+    #[serde(default)]
+    pub submits: u32,
+    /// Host clock, the first submit to the last completion marker read back: the chip's work plus
+    /// the submit and the marker poll around it.
     pub chip_ns: u64,
     pub record_ns: u64,
     pub total_ns: u64,
@@ -219,6 +230,7 @@ fn open_record(
         row,
         step,
         launches: stats.launches,
+        submits: stats.submits,
         chip_ns: stats.chip_ns,
         record_ns: stats.record_ns,
         total_ns: stats.total_ns,
@@ -515,15 +527,30 @@ pub fn check(records: &[Record]) -> Vec<String> {
     bad
 }
 
+/// The DRA-66 0.5 ms gate, a sum of two medians over two arms of the same window: `hostLB`, the
+/// median `host_overhead_ns` of the clean one-conversation beats of the per-token receipt's
+/// `receipt-1conv` slice ([`summary_tokens`]), plus `submitPoll`, the median submit + marker
+/// poll share `chip_ns - dev_span` of the stamped one-conversation timeline ([`summary`]). Both
+/// summaries must be evaluated first, in the same Wolfram session. It returns
+/// `{host ms, submit + poll ms, sum ms, verdict}`.
+pub const GATE_WL: &str = "(* DRA-66 gate, sum of medians (hostLB: token receipt, receipt-1conv slice, clean 1-row beats; submitPoll: stamped timeline, single-submit beats): {host lower bound ms, submit + poll ms, sum ms, sum <= 0.5 ms} *) {N[hostLB / 10^6], N[submitPoll / 10^6], N[(hostLB + submitPoll) / 10^6], hostLB + submitPoll <= 500000}\n";
+
 /// A Wolfram-ready summary: one association of per-beat integer nanosecond lists (`period`, every
-/// host phase, every device category, `dev_span`, `sync` = `graph_submit_wait - dev_span`), plus
-/// the queries that reduce it. The arithmetic is left to Wolfram.
+/// host phase, every device category, `dev_span`, `sync` = `graph_submit_wait - dev_span`,
+/// `submits`, `chip_ns`, `submit_poll` = `chip_ns - dev_span`), plus the queries that reduce it,
+/// ending with [`GATE_WL`]. The arithmetic is left to Wolfram.
+///
+/// `submit_poll` is the host time [`Record::chip_ns`] (the same graph stat a [`TokenRecord`]
+/// sums into its `chip_ns`) holds besides the chip's work: the queue submit, the chip's start,
+/// the completion marker's poll (the served 2000 us spin, then 50 us sleeps) and its read back.
+/// `chip_ns` and `dev_span` both carry the stamps' chip cost, so the
+/// difference does not. With more than one submit the device span also covers the host's
+/// emit between the chunks, which `chip_ns` does not, so only single-submit beats count.
 pub fn summary(records: &[Record]) -> String {
     let mut keys: Vec<String> = vec!["period".into()];
     keys.extend(HOST_PHASES.iter().map(|p| format!("host:{p}")));
     keys.extend(DEV_CATEGORIES.iter().map(|c| format!("dev:{c}")));
-    keys.push("dev_span".into());
-    keys.push("sync".into());
+    keys.extend(["dev_span", "sync", "submits", "chip_ns", "submit_poll"].map(String::from));
     let mut cols: Vec<Vec<u64>> = vec![Vec::new(); keys.len()];
     for r in records {
         let mut row = Vec::with_capacity(keys.len());
@@ -558,12 +585,15 @@ pub fn summary(records: &[Record]) -> String {
             .map_or(0, dur);
         row.push(dev_span);
         row.push(wait.saturating_sub(dev_span));
+        row.push(u64::from(r.submits));
+        row.push(r.chip_ns);
+        row.push(r.chip_ns.saturating_sub(dev_span));
         for (c, v) in cols.iter_mut().zip(row) {
             c.push(v);
         }
     }
     let mut s = format!(
-        "(* {SCHEMA}: {} beats; integer ns per beat; host clock for host:*, period, sync; chip PTIMER for dev:*, dev_span *)\n",
+        "(* {SCHEMA}: {} beats; integer ns per beat; host clock for host:*, period, sync, chip_ns, submit_poll; chip PTIMER for dev:*, dev_span *)\n",
         records.len()
     );
     s.push_str("timeline = <|\n");
@@ -578,6 +608,8 @@ pub fn summary(records: &[Record]) -> String {
         "(* outside the chip + chip + sync vs the period: *) N[{Median[timeline[\"period\"] - timeline[\"host:graph_submit_wait\"]], Median[timeline[\"dev_span\"]], Median[timeline[\"sync\"]], Median[timeline[\"period\"]]} / 10^6]\n",
     );
     s.push_str("(* residual against the recorded 20.7 ms step: *) N[207/10 - Median[timeline[\"period\"]] / 10^6]\n");
+    s.push_str("(* DRA-66 submit + poll share per token, chip_ns - dev_span over single-submit beats: {beats, median ms} *) one = Flatten[Position[timeline[\"submits\"], 1]]; submitPoll = Median[timeline[\"submit_poll\"][[one]]]; {Length[one], N[submitPoll / 10^6]}\n");
+    s.push_str(GATE_WL);
     s
 }
 
@@ -643,8 +675,11 @@ pub fn check_tokens(records: &[TokenRecord]) -> Vec<String> {
 
 /// The per-token receipt's Wolfram-ready summary: per-beat integer lists, then the queries. A
 /// beat yields one token to each of its `rows` conversations, so a beat's host overhead is each
-/// of those tokens' host time. The DRA-66 gate reads the clean one-conversation beats (`rows` 1,
-/// `prompt_rows` 0).
+/// of those tokens' host time. `hostLB` is the median host overhead of the clean
+/// one-conversation beats (`rows` 1, `prompt_rows` 0): a LOWER bound of the host time per token,
+/// because `chip_ns` also holds the submit and the completion marker's poll. The DRA-66 gate
+/// adds the stamped timeline's `submitPoll` to it ([`GATE_WL`]); `hostLB` alone is never the
+/// verdict.
 pub fn summary_tokens(records: &[TokenRecord]) -> String {
     type Col = fn(&TokenRecord) -> u64;
     let cols: [(&str, Col); 11] = [
@@ -671,14 +706,22 @@ pub fn summary_tokens(records: &[TokenRecord]) -> String {
     }
     s.push_str("|>;\n");
     s.push_str("clean[k_] := Pick[Range[Length[receipt[\"rows\"]]], MapThread[#1 == k && #2 == 0 &, {receipt[\"rows\"], receipt[\"prompt_rows\"]}]];\n");
-    s.push_str("(* DRA-66 gate, ms per token at 1 conversation, and the verdict: *) {Length[clean[1]], N[Median[receipt[\"host_overhead_ns\"][[clean[1]]]] / 10^6], Median[receipt[\"host_overhead_ns\"][[clean[1]]]] <= 500000}\n");
+    s.push_str("(* DRA-66 host lower bound per token at 1 conversation (wall - chip_ns; chip_ns holds the submit and the marker poll, see submitPoll): {beats, median ms} *) hostLB = Median[receipt[\"host_overhead_ns\"][[clean[1]]]]; {Length[clean[1]], N[hostLB / 10^6]}\n");
     s.push_str("(* per conversations k, clean beats: {beats, median total, chip, host overhead ms} *) Table[{k, Length[clean[k]], N[Median[receipt[\"total_ns\"][[clean[k]]]] / 10^6], N[Median[receipt[\"chip_ns\"][[clean[k]]]] / 10^6], N[Median[receipt[\"host_overhead_ns\"][[clean[k]]]] / 10^6]}, {k, Select[Union[receipt[\"rows\"]], Length[clean[#]] > 0 &]}]\n");
     s.push_str("(* host overhead at 1 conversation by where it sits (ms, medians): outside the step, step outside the graph, graph outside record and chip, record *) With[{c = clean[1], r = receipt}, N[{Median[(r[\"total_ns\"] - r[\"step_ns\"])[[c]]], Median[(r[\"step_ns\"] - r[\"graph_ns\"])[[c]]], Median[(r[\"graph_ns\"] - r[\"record_ns\"] - r[\"step_chip_ns\"])[[c]]], Median[r[\"record_ns\"][[c]]]} / 10^6]]\n");
     s
 }
 
-fn run_check_tokens(path: &str, drop: Option<&str>, text: &str) -> u8 {
-    let usage = "token receipt: --drop REC:record:0 (REC below the last record)";
+/// The token checker's mutants and slice ([`run_check`]).
+#[derive(Default)]
+struct TokenOpts<'a> {
+    drop: Option<&'a str>,
+    bend: Option<&'a str>,
+    slice: Option<&'a str>,
+}
+
+fn run_check_tokens(path: &str, o: &TokenOpts, text: &str) -> u8 {
+    let usage = "token receipt: --drop REC:record:0 (REC below the last record), --bend REC:chip | host:NS, --slice A:B (0 <= A < B <= records)";
     let mut records: Vec<TokenRecord> = match read_jsonl_as(text) {
         Ok(r) => r,
         Err(e) => {
@@ -686,7 +729,7 @@ fn run_check_tokens(path: &str, drop: Option<&str>, text: &str) -> u8 {
             return 2;
         }
     };
-    if let Some(d) = drop {
+    if let Some(d) = o.drop {
         let rec = match d.split(':').collect::<Vec<_>>().as_slice() {
             [r, "record", _] => r.parse::<usize>().ok().filter(|&r| r + 1 < records.len()),
             _ => None,
@@ -698,10 +741,59 @@ fn run_check_tokens(path: &str, drop: Option<&str>, text: &str) -> u8 {
         records.remove(r);
         eprintln!("negative control: dropped {d}");
     }
+    if let Some(b) = o.bend {
+        match b.split(':').collect::<Vec<_>>().as_slice() {
+            // The accounting mutant: seq stays dense, one beat's chip time moves by 1 ns while
+            // its host share stays put. It must come out red.
+            [r, "chip"] if r.parse::<usize>().is_ok_and(|r| r < records.len()) => {
+                records[r.parse::<usize>().expect("checked")].chip_ns += 1;
+                eprintln!("negative control: bent {b} (chip_ns + 1, host_overhead_ns kept)");
+            }
+            // The synthetic receipt: every beat NS ns longer on the host, consistently (t0, t1,
+            // total and host share), so the shape stays green and the 0.5 ms gate must turn.
+            ["host", ns] if ns.parse::<u64>().is_ok() => {
+                let ns = ns.parse::<u64>().expect("checked");
+                for (i, r) in records.iter_mut().enumerate() {
+                    let i = i as u64;
+                    r.t0 += i * ns;
+                    r.t1 += (i + 1) * ns;
+                    r.total_ns += ns;
+                    r.host_overhead_ns += ns;
+                }
+                eprintln!("synthetic receipt: bent {b} (every beat {ns} ns more host time)");
+            }
+            _ => {
+                eprintln!("--bend {b}: {usage}");
+                return 2;
+            }
+        }
+    }
+    let range = match o.slice {
+        None => 0..records.len(),
+        Some(s) => {
+            let ab = s
+                .split_once(':')
+                .and_then(|(a, b)| a.parse::<usize>().ok().zip(b.parse::<usize>().ok()))
+                .filter(|&(a, b)| a < b && b <= records.len());
+            let Some((a, b)) = ab else {
+                eprintln!("--slice {s}: {usage}");
+                return 2;
+            };
+            a..b
+        }
+    };
     let bad = check_tokens(&records);
     if bad.is_empty() {
-        eprintln!("token receipt GREEN: {} records, {path}", records.len());
-        print!("{}", summary_tokens(&records));
+        eprintln!(
+            "token receipt GREEN: {} records, {path}; summary over records {}..{}",
+            records.len(),
+            range.start,
+            range.end
+        );
+        if o.slice.is_some() {
+            println!("(* records {}..{} (seq) of {path}; the whole file checked green *)", range.start, range.end);
+        }
+        print!("{}", summary_tokens(&records[range]));
         0
     } else {
         for b in bad.iter().take(20) {
@@ -712,21 +804,38 @@ fn run_check_tokens(path: &str, drop: Option<&str>, text: &str) -> u8 {
     }
 }
 
-/// `aien-serve-http --check-decode-timeline FILE [--drop REC:host|dev:IDX]`: [`check`] and, when
-/// green, [`summary`] on stdout. `--drop` deletes one span (or, as `REC:record:0`, the whole
-/// record) before checking: the negative control, which must come out red. A file whose first
-/// record is a [`TOKEN_SCHEMA`] receipt goes to [`check_tokens`] / [`summary_tokens`] (`--drop`
-/// then takes `REC:record:0` only). Exit 0 green, 1 red, 2 usage or an unreadable file.
+/// `aien-serve-http --check-decode-timeline FILE [--drop SPEC] [--bend SPEC] [--slice A:B]`:
+/// [`check`] and, when green, [`summary`] on stdout. `--drop` deletes one span (or, as
+/// `REC:record:0`, the whole record) before checking: the negative control, which must come out
+/// red. A file whose first record is a [`TOKEN_SCHEMA`] receipt goes to [`check_tokens`] /
+/// [`summary_tokens`]: `--drop` then takes `REC:record:0` only; `--bend REC:chip` adds 1 ns to
+/// one beat's `chip_ns` (a red control: seq stays dense); `--bend host:NS` adds NS ns of host
+/// time to every beat consistently (green shape, the synthetic red arm of the 0.5 ms gate);
+/// `--slice A:B` checks the whole file and summarizes records `A..B` only (one gate's beats).
+/// Exit 0 green, 1 red, 2 usage or an unreadable file.
 pub fn run_check(args: &[String]) -> u8 {
-    let usage = "usage: aien-serve-http --check-decode-timeline FILE [--drop REC:host|dev|record:IDX]";
-    let (path, drop) = match args {
-        [p] => (p, None),
-        [p, flag, d] if flag == "--drop" => (p, Some(d.as_str())),
-        _ => {
-            eprintln!("{usage}");
+    let usage = "usage: aien-serve-http --check-decode-timeline FILE [--drop REC:host|dev|record:IDX] [--bend REC:chip|host:NS] [--slice A:B] (--bend and --slice: token receipts)";
+    let Some((path, rest)) = args.split_first() else {
+        eprintln!("{usage}");
+        return 2;
+    };
+    let mut o = TokenOpts::default();
+    for pair in rest.chunks(2) {
+        let slot = match pair {
+            [f, _] if f == "--drop" => &mut o.drop,
+            [f, _] if f == "--bend" => &mut o.bend,
+            [f, _] if f == "--slice" => &mut o.slice,
+            _ => {
+                eprintln!("{usage}");
+                return 2;
+            }
+        };
+        if slot.replace(pair[1].as_str()).is_some() {
+            eprintln!("{} given twice; {usage}", pair[0]);
             return 2;
         }
-    };
+    }
+    let drop = o.drop;
     let text = match std::fs::read_to_string(path) {
         Ok(t) => t,
         Err(e) => {
@@ -736,7 +845,11 @@ pub fn run_check(args: &[String]) -> u8 {
     };
     let first = text.lines().find(|l| !l.trim().is_empty());
     if first.is_some_and(|l| l.contains(TOKEN_SCHEMA)) {
-        return run_check_tokens(path, drop, &text);
+        return run_check_tokens(path, &o, &text);
+    }
+    if o.bend.is_some() || o.slice.is_some() {
+        eprintln!("{path}: a launch timeline takes --drop only; {usage}");
+        return 2;
     }
     let mut records = match read_jsonl(&text) {
         Ok(r) => r,
@@ -860,7 +973,8 @@ mod tests {
             tl.host = tl.host.map(|h| h + t);
             let stats = GraphStats {
                 launches,
-                chip_ns: launches as u64 * 1000,
+                submits: 1,
+                chip_ns: launches as u64 * 1000 + 40_000,
                 record_ns: 300_000,
                 total_ns: 899_000,
                 ..Default::default()
@@ -935,5 +1049,120 @@ mod tests {
         let s = summary(&r);
         assert!(s.contains("\"period\" -> {1000000, 1000000, 1000000, 1000000}"), "{s}");
         assert!(s.contains("\"dev:head_recheck\" -> {1000, 1000, 1000, 1000}"), "{s}");
+        assert!(s.contains("\"submits\" -> {1, 1, 1, 1}"), "{s}");
+        assert!(s.contains("\"submit_poll\" -> {40000, 40000, 40000, 40000}"), "{s}");
+        assert!(s.ends_with(GATE_WL), "{s}");
+    }
+
+    /// A launch record written before `submits` existed (#787's host timeline) still reads, as 0.
+    #[test]
+    fn record_without_submits_reads_as_zero() {
+        let r = records(1);
+        let line = serde_json::to_string(&r[0]).unwrap();
+        let old = line.replace("\"submits\":1,", "");
+        assert_ne!(old, line);
+        let back = read_jsonl(&old).unwrap();
+        assert_eq!(back[0].submits, 0);
+        assert_eq!(back[0].chip_ns, r[0].chip_ns);
+    }
+
+    /// `n` consistent single-row token records, 1 ms apart: 0.6 ms chip, 0.4 ms host each.
+    fn tokens(n: u64) -> Vec<TokenRecord> {
+        (0..n)
+            .map(|i| TokenRecord {
+                schema: TOKEN_SCHEMA.into(),
+                seq: i,
+                beat: i + 1,
+                rows: 1,
+                prompt_rows: 0,
+                steps: 1,
+                launches: 40,
+                submits: 1,
+                t0: 1_000_000 * i,
+                t1: 1_000_000 * (i + 1),
+                total_ns: 1_000_000,
+                step_ns: 900_000,
+                graph_ns: 800_000,
+                record_ns: 100_000,
+                step_chip_ns: 600_000,
+                chip_ns: 600_000,
+                host_overhead_ns: 400_000,
+            })
+            .collect()
+    }
+
+    fn token_file(name: &str, recs: &[TokenRecord]) -> String {
+        let p = std::env::temp_dir().join(format!("dra66-{}-{name}.jsonl", std::process::id()));
+        let text: String = recs.iter().map(|r| serde_json::to_string(r).unwrap() + "\n").collect();
+        std::fs::write(&p, text).unwrap();
+        p.to_string_lossy().into_owned()
+    }
+
+    fn cli(file: &str, extra: &[&str]) -> u8 {
+        let mut a = vec![file.to_string()];
+        a.extend(extra.iter().map(|s| s.to_string()));
+        run_check(&a)
+    }
+
+    #[test]
+    fn token_bends_and_slice() {
+        let recs = tokens(6);
+        assert_eq!(check_tokens(&recs), Vec::<String>::new());
+        let f = token_file("bend", &recs);
+        assert_eq!(cli(&f, &[]), 0);
+        // The accounting mutant: one beat's chip moves, its host share does not. Red.
+        assert_eq!(cli(&f, &["--bend", "3:chip"]), 1);
+        // The synthetic receipt: 0.6 ms more host time on every beat keeps the shape green.
+        assert_eq!(cli(&f, &["--bend", "host:600000"]), 0);
+        let mut bent = recs.clone();
+        for (i, r) in bent.iter_mut().enumerate() {
+            let i = i as u64;
+            r.t0 += i * 600_000;
+            r.t1 += (i + 1) * 600_000;
+            r.total_ns += 600_000;
+            r.host_overhead_ns += 600_000;
+        }
+        assert_eq!(check_tokens(&bent), Vec::<String>::new());
+        assert!(summary_tokens(&bent).contains("\"host_overhead_ns\" -> {1000000, "));
+        // Usage: unknown bend, bad slice, a flag twice, a dangling flag.
+        assert_eq!(cli(&f, &["--bend", "6:chip"]), 2);
+        assert_eq!(cli(&f, &["--bend", "host:x"]), 2);
+        assert_eq!(cli(&f, &["--slice", "4:4"]), 2);
+        assert_eq!(cli(&f, &["--slice", "2:7"]), 2);
+        assert_eq!(cli(&f, &["--bend", "1:chip", "--bend", "2:chip"]), 2);
+        assert_eq!(cli(&f, &["--slice"]), 2);
+        assert_eq!(cli(&f, &["--slice", "2:5"]), 0);
+        // A dropped record stays red whatever the slice.
+        assert_eq!(cli(&f, &["--drop", "1:record:0", "--slice", "2:4"]), 1);
+        let _ = std::fs::remove_file(&f);
+    }
+
+    #[test]
+    fn token_summary_covers_the_slice_only() {
+        let mut recs = tokens(6);
+        // Beats 2..5 carry a distinct host share; the summary over them must show only those.
+        for r in &mut recs[2..5] {
+            r.chip_ns -= 1_000;
+            r.step_chip_ns -= 1_000;
+            r.host_overhead_ns += 1_000;
+        }
+        assert_eq!(check_tokens(&recs), Vec::<String>::new());
+        let s = summary_tokens(&recs[2..5]);
+        assert!(s.contains("\"host_overhead_ns\" -> {401000, 401000, 401000}\n"), "{s}");
+        assert!(s.contains("hostLB = Median["), "{s}");
+        assert!(!s.contains("<= 500000"), "the lower bound alone carries no verdict: {s}");
+    }
+
+    #[test]
+    fn launch_timeline_takes_drop_only() {
+        let r = records(3);
+        let p = std::env::temp_dir().join(format!("dra66-{}-launch.jsonl", std::process::id()));
+        std::fs::write(&p, r.iter().map(|x| serde_json::to_string(x).unwrap() + "\n").collect::<String>()).unwrap();
+        let f = p.to_string_lossy().into_owned();
+        assert_eq!(cli(&f, &[]), 0);
+        assert_eq!(cli(&f, &["--drop", "1:record:0"]), 1);
+        assert_eq!(cli(&f, &["--bend", "1:chip"]), 2);
+        assert_eq!(cli(&f, &["--slice", "0:2"]), 2);
+        let _ = std::fs::remove_file(&p);
     }
 }

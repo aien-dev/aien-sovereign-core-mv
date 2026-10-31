@@ -953,7 +953,10 @@ impl RowStep for StampFake {
         let h1 = timeline_now_ns();
         std::thread::sleep(Duration::from_micros(50)); // the list build
         let rec = timeline_now_ns() - h1;
-        let mut outs = self.inner.step_rows(feed)?; // submit and wait
+        // Submit and wait: the chip's 200 us, of which the device span covers n * 100 ns and the
+        // submit and marker poll the 20 us `chip_ns` holds besides (DRA-66 `submit_poll`).
+        std::thread::sleep(Duration::from_micros(200));
+        let mut outs = self.inner.step_rows(feed)?;
         let total = timeline_now_ns() - h1;
         let h2 = timeline_now_ns();
         let h3 = timeline_now_ns();
@@ -966,7 +969,8 @@ impl RowStep for StampFake {
         };
         outs[0].stats = GraphStats {
             launches: n as u32,
-            chip_ns: n as u64 * 100,
+            submits: 1,
+            chip_ns: n as u64 * 100 + 20_000,
             record_ns: rec,
             total_ns: total,
             ..Default::default()
@@ -1050,6 +1054,8 @@ fn decode_timeline_records_every_single_row_beat() {
     assert!(!crate::decode_timeline::check(&no_dev).is_empty());
     let s = crate::decode_timeline::summary(&recs);
     assert!(s.contains("\"dev:head_recheck\" -> {100, "), "{s}");
+    assert!(s.contains("\"submit_poll\" -> {20000, "), "{s}");
+    assert!(s.ends_with(crate::decode_timeline::GATE_WL), "{s}");
     // `AIEN_Q36_DECODE_TIMELINE_KEEP=<file>`: keep this host run for the checker CLI.
     if let Some(keep) = std::env::var_os("AIEN_Q36_DECODE_TIMELINE_KEEP") {
         std::fs::copy(&path, keep).unwrap();
