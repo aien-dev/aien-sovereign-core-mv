@@ -330,6 +330,34 @@ impl Qwen38Omega {
         Ok((next, logits, st))
     }
 
+    /// Feeds `tokens` at head 0's next positions for their state only: no head, no residual read
+    /// back (a session's prompt rows before its snapshot point, DRA-65). The 35B: chunks of
+    /// [`q36_prefill_chunk`] through the chip prefill (L369, any length, the state bit for bit as
+    /// token by token; with 0 every token is stepped through the decode graph and the stats'
+    /// `chunks` is 0); other models: [`Self::prefill_rows`] with `chunk` (at least
+    /// [`q::GDN_PF_MIN_T`] tokens). Nothing to feed is a no-op.
+    pub fn prefill_state(&mut self, tokens: &[u32], chunk: usize) -> Result<PrefillStats, String> {
+        let t0 = Instant::now();
+        if !self.is_moe() {
+            return self.prefill_rows(tokens, chunk, false).map(|(_, st)| st);
+        }
+        let c = q36_prefill_chunk()?;
+        let mut chunks = 0;
+        if c == 0 {
+            for &t in tokens {
+                self.step(t)?;
+            }
+        } else if !tokens.is_empty() {
+            chunks = self.prefill_moe_head(0, tokens, c, false)?.1;
+        }
+        Ok(PrefillStats {
+            tokens: tokens.len(),
+            chunks,
+            wall_ns: ns(t0),
+            ..Default::default()
+        })
+    }
+
     /// The final norm and the bf16 lm_head on one residual row (`[hidden]`): `[vocab]` logits.
     pub fn head_logits(&mut self, residual: &[f32]) -> Result<Vec<f32>, String> {
         let h = self.config.hidden;
@@ -361,19 +389,25 @@ impl Qwen38Omega {
         let n = tokens.len();
         let (h, v) = (self.config.hidden, self.config.vocab);
         if self.is_moe() {
-            // As prefill: token by token through the decode graph; the rows are its residual x.
+            // The 35B's chip prefill (L369) keeps its rows in its own buffers, not in the decode
+            // graph's x, so the rows asked for come from decode steps: every token's when `all`;
+            // else the others go in as chunks ([`Self::prefill_state`]) and the last is stepped.
+            let (head, stepped) = if all || n == 0 {
+                (&tokens[..0], tokens)
+            } else {
+                tokens.split_at(n - 1)
+            };
+            let chunks = self.prefill_state(head, chunk)?.chunks;
             let mut rows = Vec::with_capacity(if all { n * h } else { h });
-            for (i, &t) in tokens.iter().enumerate() {
+            for &t in stepped {
                 self.step(t)?;
-                if all || i + 1 == n {
-                    rows.extend(self.residual()?);
-                }
+                rows.extend(self.residual()?);
             }
-            let _ = (chunk, v);
             return Ok((
                 rows,
                 PrefillStats {
                     tokens: n,
+                    chunks,
                     wall_ns: ns(t0),
                     ..Default::default()
                 },
@@ -581,16 +615,33 @@ impl Qwen38Omega {
 /// Prompt tokens per 35B prefill chunk (`AIEN_Q36_PREFILL_CHUNK`, default the graph's most,
 /// [`q::q36::PREFILL_MAX_ROWS`]); 0 = token by token through the decode graph.
 pub fn q36_prefill_chunk() -> Result<usize, String> {
-    match std::env::var("AIEN_Q36_PREFILL_CHUNK") {
-        Ok(v) => match v.parse::<usize>() {
+    parse_q36_chunk(std::env::var("AIEN_Q36_PREFILL_CHUNK").ok().as_deref())
+}
+
+fn parse_q36_chunk(v: Option<&str>) -> Result<usize, String> {
+    match v {
+        Some(v) => match v.parse::<usize>() {
             Ok(n) if n <= q::q36::PREFILL_MAX_ROWS => Ok(n),
             _ => Err(format!(
                 "AIEN_Q36_PREFILL_CHUNK={v}: 0 (off) ..= {}",
                 q::q36::PREFILL_MAX_ROWS
             )),
         },
-        Err(_) => Ok(q::q36::PREFILL_MAX_ROWS),
+        None => Ok(q::q36::PREFILL_MAX_ROWS),
     }
+}
+
+/// The lengths of the 35B prefill's chunks for `n` tokens: whole chunks of `chunk` and the rest
+/// last (the q36 prefill takes any length from 1, unlike the 27B's [`chunk_lengths`]).
+pub fn q36_chunk_lengths(n: usize, chunk: usize) -> Vec<usize> {
+    if chunk == 0 {
+        return Vec::new();
+    }
+    let mut out = vec![chunk; n / chunk];
+    if n % chunk > 0 {
+        out.push(n % chunk);
+    }
+    out
 }
 
 impl Qwen38Omega {
@@ -647,9 +698,13 @@ impl Qwen38Omega {
         }
         let mut next = None;
         let mut pos = pos0;
-        let n_chunks = tokens.len().div_ceil(chunk);
-        for (i, c) in tokens.chunks(chunk).enumerate() {
-            let mut x = vec![0f32; c.len() * h];
+        let lengths = q36_chunk_lengths(tokens.len(), chunk);
+        let n_chunks = lengths.len();
+        let mut at = 0;
+        for (i, &m) in lengths.iter().enumerate() {
+            let c = &tokens[at..at + m];
+            at += m;
+            let mut x = vec![0f32; m * h];
             for (row, &t) in x.chunks_mut(h).zip(c) {
                 let t = t as usize;
                 for (d, &b) in row.iter_mut().zip(&embed[t * h..(t + 1) * h]) {
@@ -663,7 +718,7 @@ impl Qwen38Omega {
             if last {
                 next = tok;
             }
-            pos += c.len();
+            pos += m;
         }
         *self.head_pos_mut(head)? = pos;
         Ok((next, n_chunks))
@@ -689,6 +744,47 @@ mod tests {
         assert_eq!(chunk_lengths(130, 64), vec![64, 63, 3]);
         assert_eq!(chunk_lengths(129, 64), vec![64, 62, 3]);
         assert_eq!(chunk_lengths(131_072, 4096).len(), 32);
+    }
+
+    /// DRA-65: the 35B chunk boundaries at the prompt lengths the window measures, at the served
+    /// chunk (128) and at a small one; every token in exactly one chunk, none longer than the cap.
+    #[test]
+    fn q36_chunks_at_the_boundaries() {
+        let cap = q::q36::PREFILL_MAX_ROWS;
+        assert_eq!(cap, 128);
+        let cases: [(usize, &[usize]); 4] =
+            [(1, &[1]), (127, &[127]), (128, &[128]), (129, &[128, 1])];
+        for (n, want) in cases {
+            assert_eq!(q36_chunk_lengths(n, cap), want, "n {n}");
+        }
+        assert_eq!(q36_chunk_lengths(2048, cap), vec![128; 16]);
+        assert_eq!(q36_chunk_lengths(8192, cap), vec![128; 64]);
+        assert_eq!(q36_chunk_lengths(8210, cap).len(), 65);
+        assert_eq!(q36_chunk_lengths(8210, cap)[64], 18);
+        assert!(q36_chunk_lengths(0, cap).is_empty());
+        assert!(q36_chunk_lengths(5, 0).is_empty());
+        for chunk in [1, 7, 64, cap] {
+            for n in [1, chunk - 1, chunk, chunk + 1, 2048, 8192] {
+                let c = q36_chunk_lengths(n, chunk);
+                assert_eq!(c.iter().sum::<usize>(), n, "n {n} chunk {chunk}");
+                assert_eq!(c.len(), n.div_ceil(chunk), "n {n} chunk {chunk}");
+                assert!(
+                    c.iter().all(|&m| (1..=chunk).contains(&m)),
+                    "n {n} chunk {chunk}: {c:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn q36_chunk_switch_parses_off_default_and_cap() {
+        let cap = q::q36::PREFILL_MAX_ROWS;
+        assert_eq!(parse_q36_chunk(None), Ok(cap));
+        assert_eq!(parse_q36_chunk(Some("0")), Ok(0));
+        assert_eq!(parse_q36_chunk(Some("16")), Ok(16));
+        assert_eq!(parse_q36_chunk(Some("128")), Ok(128));
+        assert!(parse_q36_chunk(Some("129")).is_err());
+        assert!(parse_q36_chunk(Some("x")).is_err());
     }
 
     #[test]

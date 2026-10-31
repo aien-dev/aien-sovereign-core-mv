@@ -78,8 +78,10 @@ pub struct FeedStats {
     pub reuse: Option<Reuse>,
     /// Prompt tokens fed this turn (prompt length minus the reused prefix).
     pub fed: usize,
-    /// Of those, fed one at a time through the decode graph (pieces shorter than the prefill's
-    /// minimum).
+    /// Of those, fed one at a time through the decode graph: pieces shorter than the 27B
+    /// prefill's minimum, and on the 35B only with `AIEN_Q36_PREFILL_CHUNK=0` or a last piece
+    /// shorter than [`q::GDN_PF_MIN_T`] (DRA-65: the 35B's rows before the snapshot point go in
+    /// as chip prefill chunks at any length).
     pub stepped: usize,
     pub prefill: PrefillStats,
     pub restore_ns: u64,
@@ -89,6 +91,24 @@ pub struct FeedStats {
 
 fn ns(t: Instant) -> u64 {
     t.elapsed().as_nanos() as u64
+}
+
+/// The snapshot point of `prompt` when the first `from` tokens are already fed: its last
+/// `<|im_start|>` (the header of the turn being answered) at or past `from`. The session feeds
+/// `prompt[from..k]` without the head, snapshots there, then feeds `prompt[k..]` with the head;
+/// `None`: no such header, the whole rest goes in with the head and no snapshot is taken.
+pub fn snapshot_point(prompt: &[u32], from: usize) -> Option<usize> {
+    prompt
+        .iter()
+        .rposition(|&t| t == IM_START)
+        .filter(|&k| k >= from)
+}
+
+/// Whether a row piece of `len` tokens (no head) is stepped token by token rather than fed by
+/// [`Qwen38Omega::prefill_state`]: only the 27B's pieces under its prefill minimum; the 35B's
+/// chip prefill takes any length (DRA-65).
+pub fn rows_by_steps(len: usize, moe: bool) -> bool {
+    !moe && len < q::GDN_PF_MIN_T
 }
 
 fn add(sum: &mut PrefillStats, s: &PrefillStats) {
@@ -105,6 +125,16 @@ fn add(sum: &mut PrefillStats, s: &PrefillStats) {
     sum.attn_call_ns += s.attn_call_ns;
     sum.host_ns += s.host_ns;
     sum.head_ns += s.head_ns;
+}
+
+/// Books one prefill call: the 35B with `AIEN_Q36_PREFILL_CHUNK=0` reports no chunks for tokens
+/// it stepped through the decode graph, which count as stepped.
+fn count(st: &mut FeedStats, s: &PrefillStats) {
+    if s.chunks == 0 && s.tokens > 0 {
+        st.stepped += s.tokens;
+    } else {
+        add(&mut st.prefill, s);
+    }
 }
 
 /// The resident model plus the token record of its live state and of its snapshot.
@@ -204,11 +234,7 @@ impl Qwen38Session {
         let from = self.history.len();
         st.fed = prompt.len() - from;
         // The snapshot point: the last turn header not yet inside the reused prefix.
-        if let Some(k) = prompt
-            .iter()
-            .rposition(|&t| t == IM_START)
-            .filter(|&k| k >= from)
-        {
+        if let Some(k) = snapshot_point(prompt, from) {
             self.feed_rows(&prompt[from..k], &mut st)?;
             if self.snap_tokens.as_deref() != Some(&prompt[..k]) && k > 0 {
                 let t = Instant::now();
@@ -224,16 +250,16 @@ impl Qwen38Session {
         Ok((logits, st))
     }
 
-    /// Feeds `tokens` without the head (the residual rows are dropped).
+    /// Feeds `tokens` without the head (no residual read back).
     fn feed_rows(&mut self, tokens: &[u32], st: &mut FeedStats) -> Result<(), String> {
-        if tokens.len() >= q::GDN_PF_MIN_T {
-            let (_, s) = self.model.prefill_rows(tokens, self.chunk, false)?;
-            add(&mut st.prefill, &s);
-        } else {
+        if rows_by_steps(tokens.len(), self.model.is_moe()) {
             for &t in tokens {
                 self.model.step(t)?;
             }
             st.stepped += tokens.len();
+        } else {
+            let s = self.model.prefill_state(tokens, self.chunk)?;
+            count(st, &s);
         }
         self.history.extend_from_slice(tokens);
         Ok(())
@@ -246,7 +272,7 @@ impl Qwen38Session {
         }
         let logits = if tokens.len() >= q::GDN_PF_MIN_T {
             let (_, logits, s) = self.model.prefill(tokens, self.chunk)?;
-            add(&mut st.prefill, &s);
+            count(st, &s);
             logits
         } else {
             for &t in tokens {
@@ -329,5 +355,67 @@ mod tests {
             plan_reuse(&[1, 2, 9], Some(&[1, 2]), &p),
             Reuse::Snapshot(2)
         );
+    }
+
+    /// A rendered single-turn prompt of `len` tokens whose answer header (`<|im_start|>`
+    /// assistant ... , 7 tokens with thinking off) closes it, plus an earlier user header at 0.
+    fn rendered(len: usize) -> Vec<u32> {
+        let mut p: Vec<u32> = (0..len as u32).map(|i| 1000 + i).collect();
+        p[0] = IM_START;
+        if len > 7 {
+            p[len - 7] = IM_START;
+        }
+        p
+    }
+
+    /// DRA-65: where start_inner splits a prompt at the lengths the chunk tests use: the rows
+    /// before the answer header (fed without the head, as 35B prefill chunks at any length),
+    /// the snapshot at the header, the header and what follows fed with the head.
+    #[test]
+    fn snapshot_point_splits_rows_and_last_piece() {
+        let cap = q::q36::PREFILL_MAX_ROWS;
+        for len in [1, cap - 1, cap, cap + 1, 2048, 8192] {
+            let p = rendered(len);
+            let k = snapshot_point(&p, 0).expect("a header");
+            let want = if len > 7 { len - 7 } else { 0 };
+            assert_eq!(k, want, "len {len}");
+            assert_eq!(p[k], IM_START);
+            // The rows piece and the last piece cover the prompt once, the last starts at the header.
+            let (rows, last) = p.split_at(k);
+            assert_eq!(rows.len() + last.len(), len);
+            assert!(!last.is_empty() && last[0] == IM_START);
+            // The 35B never steps the rows piece; its chunks cover it.
+            assert!(!rows_by_steps(rows.len(), true));
+            let c = super::super::prefill::q36_chunk_lengths(rows.len(), cap);
+            assert_eq!(c.iter().sum::<usize>(), rows.len(), "len {len}");
+        }
+        // 2048: 2041 rows = 15 chunks of 128 + 121; the answer header's 7 tokens go in with the head.
+        let c = super::super::prefill::q36_chunk_lengths(2048 - 7, cap);
+        assert_eq!((c.len(), c[15]), (16, 121));
+    }
+
+    #[test]
+    fn snapshot_point_respects_the_reused_prefix() {
+        // Turn 2: the reused snapshot ends at turn 1's answer header (k1); the new answer header
+        // is past it, so the rows between are fed and the snapshot moves there.
+        let mut p = rendered(40);
+        let k1 = 33;
+        p.extend([2000, 2001, 2002, IM_START, 2003, 2004]);
+        assert_eq!(snapshot_point(&p, k1), Some(43));
+        // The header right at the reused end: an empty rows piece, the same snapshot.
+        assert_eq!(snapshot_point(&p, 43), Some(43));
+        // A live state past the last header: no snapshot, the rest goes in with the head.
+        assert_eq!(snapshot_point(&p, 44), None);
+        // No header at all.
+        assert_eq!(snapshot_point(&[5, 6, 7], 0), None);
+    }
+
+    #[test]
+    fn only_short_27b_row_pieces_are_stepped() {
+        for len in [0, 1, 2, 3, 127, 128, 129, 8192] {
+            assert!(!rows_by_steps(len, true), "35B len {len}");
+        }
+        assert!(rows_by_steps(2, false));
+        assert!(!rows_by_steps(q::GDN_PF_MIN_T, false));
     }
 }
