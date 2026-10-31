@@ -1,0 +1,8 @@
+{
+  "invariants": [
+    "After a restart, KV stored under another model digest is never served. Check: cargo test -p aien-runtime --test kv_restart_test -- --exact wrong_model_digest_namespace_is_never_served_after_restart"
+  ],
+  "name": "aien-runtime",
+  "purpose": "Canonical single-process runtime spine for AIEN persistent branching intelligence",
+  "schema_version": "1.0.0"
+}

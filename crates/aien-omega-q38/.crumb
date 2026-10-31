@@ -1,0 +1,8 @@
+{
+  "invariants": [
+    "A decode config with missing state is refused on the host. Check: cargo test -p aien-omega-q38 --lib -- --exact tests::config_check_refuses_missing_state"
+  ],
+  "name": "aien-omega-q38",
+  "purpose": "FFI to omega's Qwen3.8-27B decode pieces: Gated DeltaNet state, head_dim-256 KV cache and the one-command-list decode token (omega_gpu_q38_graph, sc #642)",
+  "schema_version": "1.0.0"
+}

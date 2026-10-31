@@ -1,76 +1,21 @@
 {
-  "above": {
-    "canonical": "..",
-    "name": "workspace",
-    "path": "..",
-    "role": "Parent directory context"
-  },
   "below": [
-    {
-      "item_type": "file",
-      "name": "Cargo.lock",
-      "role": ""
-    },
-    {
-      "item_type": "file",
-      "name": "Cargo.toml",
-      "role": ""
-    },
-    {
-      "item_type": "file",
-      "name": "LICENSE",
-      "role": ""
-    },
-    {
-      "item_type": "file",
-      "name": "README.md",
-      "role": ""
-    },
-    {
-      "item_type": "dir",
-      "name": "crates",
-      "role": ""
-    },
-    {
-      "item_type": "dir",
-      "name": "doctrine",
-      "role": ""
-    },
-    {
-      "item_type": "dir",
-      "name": "modular",
-      "role": ""
-    },
-    {
-      "item_type": "dir",
-      "name": "scripts",
-      "role": ""
-    },
-    {
-      "item_type": "dir",
-      "name": "skills",
-      "role": ""
-    },
-    {
-      "item_type": "dir",
-      "name": "target",
-      "role": ""
-    }
+    {"name": "crates", "role": "Rust workspace crates: the runtime, the HTTP door, the ABI mirrors and the omega FFI wrappers"},
+    {"name": "doctrine", "role": "Project doctrine and design records"},
+    {"name": "docs", "role": "Documentation, ADRs and operator guides"},
+    {"name": "om", "role": "First-party seeded Omega (.om) replacements and checks, each with a pinned omc"},
+    {"name": "scripts", "role": "Build, release and check scripts"},
+    {"name": "skills", "role": "Agent skills shipped with the repository"},
+    {"name": "tests", "role": "Repository-level gates; tests/gates/run.sh is the single local gate entry point"},
+    {"name": "tools", "role": "Developer tools, including the local CI runner"}
   ],
-  "description": "Workspace directory",
-  "dir_name": "aien-sovereign-core",
-  "dir_path": ".",
   "extensions": {
     "generated_policy": "on-demand"
   },
-  "history": [],
-  "purpose": {
-    "created_at": "2026-09-18T20:15:00.320079421+00:00",
-    "created_by": "AIEN (Auto-Sensed)",
-    "lifecycle": "permanent",
-    "session_id": "auto-sense",
-    "statement": "Documentation & implementation for AIEN Sovereign Core"
-  },
-  "version": 1,
-  "whispers": []
+  "invariants": [
+    "Crumbs hold only hand-written fields; generated data is derived on demand and never committed. Check: tests/gates/run.sh crumb-verify (gate CRUMB-VERIFY); the hosted CI job AIEN Checks runs crumb verify . with the pinned tool"
+  ],
+  "name": "aien-sovereign-core",
+  "purpose": "AIEN Sovereign Core: the Rust host runtime, the loopback OpenAI-compatible HTTP door (aien-serve-http) and the FFI to the omega GPU kernels",
+  "schema_version": "1.0.0"
 }

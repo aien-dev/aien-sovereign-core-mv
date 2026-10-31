@@ -1,0 +1,8 @@
+{
+  "invariants": [
+    "https URLs are refused in any letter case; the client carries no crypto. Check: cargo test -p aien-localhttp --lib -- --exact url::tests::https_is_refused_in_any_case"
+  ],
+  "name": "aien-localhttp",
+  "purpose": "Small native HTTP/1.1 client for plain http to local services. Refuses https; carries no crypto.",
+  "schema_version": "1.0.0"
+}

@@ -1,0 +1,9 @@
+{
+  "invariants": [
+    "A sealed record with one tampered ciphertext byte is refused. Check: cargo test -p aien-kv-store --test seal_tests -- --exact seal_refuses_a_tampered_ciphertext_byte",
+    "Record validation refuses bad headers before any allocation. Check: cargo test -p aien-kv-store --test validate_tests -- --exact validate_refuses_before_any_allocation"
+  ],
+  "name": "aien-kv-store",
+  "purpose": "Persistent KV cache chunk identity, 256-byte record header codec, validation and the KvStore contract (ADR 0003)",
+  "schema_version": "1.0.0"
+}

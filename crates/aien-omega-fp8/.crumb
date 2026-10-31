@@ -1,0 +1,8 @@
+{
+  "invariants": [
+    "Buffer lengths are checked on the host (ShapeMismatch) before any chip call. Check: cargo test -p aien-omega-fp8 --lib -- --exact tests::lengths_are_checked_before_the_chip"
+  ],
+  "name": "aien-omega-fp8",
+  "purpose": "FFI to omega's FP8 e4m3 block-scaled GEMV, single and grouped experts (omega_gpu_fp8_api, OWN-30B)",
+  "schema_version": "1.0.0"
+}

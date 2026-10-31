@@ -1,0 +1,10 @@
+{
+  "invariants": [
+    "Shape mismatches are caught before the FFI call. Check: cargo test -p aien-omega-gpu --test parity -- --exact shape_mismatch_is_caught_before_ffi",
+    "The pinned omega commit in the crate equals omega.lock, a full sha. Check: cargo test -p aien-omega-gpu --test parity -- --exact lock_is_full_sha",
+    "The Rust FFI declarations match abi/omega_gpu.manifest. Check: cargo test -p aien-omega-gpu --test abi_manifest -- --exact rust_ffi_matches_the_manifest"
+  ],
+  "name": "aien-omega-gpu",
+  "purpose": "FFI to the native (no CUDA) Omega GPU matmul engine, pinned by omega.lock",
+  "schema_version": "1.0.0"
+}
