@@ -33,6 +33,7 @@ pub mod generation;
 pub mod model_dir;
 pub mod moe_plan;
 pub mod native_ops;
+pub mod nvfp4;
 pub mod omega_backend;
 pub mod qwen38;
 pub mod qwen38_omega;
