@@ -47,7 +47,7 @@ umask 022
 
 W=/home/drakestapleton/work/dra-66
 BIN=$W/bin-head/aien-serve-http
-SHA_HEAD=23912a94b2ad96f658186f3138beffe3c45294739d00c80f7790cfe228eebdbb # sc 3cd0410d + omega a647b6a9 (PROTOCOL.md)
+SHA_HEAD=a33cc2abf545927b293316cca018ff81d492bacfdd8fb996dcc5dccdb02449e4 # sc 9d70dca4 + omega a647b6a9 (PROTOCOL.md)
 GOLD=$W/core/evidence/q36-host-20261020/gen-chat-max-24.json
 MODEL=/home/drakestapleton/models/qwen3.6-35b-a3b-fp8-95a723d0
 PORT=18190

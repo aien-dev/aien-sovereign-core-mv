@@ -7,14 +7,14 @@ spark-window.
 ## Binary
 
 - `/home/drakestapleton/work/dra-66/bin-head/aien-serve-http`, sha256
-  `23912a94b2ad96f658186f3138beffe3c45294739d00c80f7790cfe228eebdbb`.
-- Built from sovereign-core `3cd0410d33757e65fb850895c9e9de2e10a15f4c` (the binary reports
-  `sovereign-core commit: 3cd0410d… (dirty 0)`) with omega `a647b6a9` (`omega.lock`), physics
+  `a33cc2abf545927b293316cca018ff81d492bacfdd8fb996dcc5dccdb02449e4`.
+- Built from sovereign-core `9d70dca4eb41facf906092998c0033dcedbf84dd` (the binary reports
+  `sovereign-core commit: 9d70dca4… (dirty 0)`) with omega `a647b6a9` (`omega.lock`), physics
   `048e5f5e`, aienos `b84c0a67`:
   `scripts/pins.sh --gpu ~/work/dra-66/pins && . ~/work/dra-66/pins/env.sh &&
   nice -n 19 taskset -c 0-9 cargo build --release -p aien-serve-http --bin aien-serve-http
   --target-dir ~/work/dra-66/target-gpu`. Native `libomega_gpu.a` linked (no CPU stub).
-- The commits after 3cd0410d on the branch touch only evidence files and the PR text.
+- The commits after 9d70dca4 on the branch touch only evidence files and the PR text.
 
 ## Server
 
@@ -174,3 +174,5 @@ in the receipt and excluded from the gate.
     green before; the checker still says GREEN) → `{0.115041, 0.628145, 0.743186, False}`;
   - `host-gate.wl` (slice 0..19 + `host-summary-stamps.wl`) → `{0.115041, 0.02, 0.135041, True}`.
   These exercise the queries on fakes; the numbers are the fakes' sleeps, not chip numbers.
+  The CLI runs used the host (CPU stub) build of 3cd0410d; 9d70dca4 differs from it only by
+  rustfmt and the regenerated `host-tests-3.log`.
