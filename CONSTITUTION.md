@@ -72,7 +72,7 @@ Technical communication, documentation, and pull requests must be direct, factua
 
 ### Section 3. Stigmergic Filesystem Anchoring
 1. Codebases declare architectural intent, layers, and non-negotiable rules via physical filesystem breadcrumbs (.crumb).
-2. Multi-agent coordination remains transparent and local (.crumb.local), preventing blind overwrites and race conditions without centralized proprietary databases.
+2. Agents on one machine may keep local scratch state in .crumb.local; coordination between agents goes through tracked claims and draft pull requests.
 
 ---
 

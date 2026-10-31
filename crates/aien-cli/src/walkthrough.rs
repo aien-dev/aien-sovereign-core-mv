@@ -336,6 +336,7 @@ graph TD
 - [x] **Phase 6: Hierarchical Directory Breadcrumbs (Sovereign Split)**
   - `.crumb` is tracked in Git (permanent purpose, above/below topography).
   - `.crumb.local` is gitignored (ephemeral view history, concurrency locks, active whispers).
+  - `.crumb.local` is single-machine scratch state; coordination between agents goes through tracked claims and draft pull requests.
 - [x] **Phase 7: Hive Pulse & Vibe Heartbeat**
   - Dream engine analyzes the beat, pulse, health, and vibe of the hive across all models and agents.
   - Live pulse recorded in `basecamp/hive-pulse.json` and sensed during nesting initiation.
