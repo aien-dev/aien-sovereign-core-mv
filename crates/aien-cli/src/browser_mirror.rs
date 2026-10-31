@@ -36,6 +36,7 @@ use std::fs;
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::os::unix::fs::DirBuilderExt;
+#[cfg(not(target_os = "linux"))]
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -427,14 +428,18 @@ impl ChromeProcess {
             .mode(0o700)
             .create(&profile_dir)
             .map_err(|e| format!("profile dir: {}", e))?;
-        // Chrome leads an isolated process group; Linux teardown signals only
-        // pidfds, never numeric PID/PGID targets.
+        let mut command = Command::new(binary);
+        command.env(TAG_VAR, &tag);
+        // Linux teardown signals only pidfds, never numeric PID/PGID targets, so
+        // Chrome stays in the caller's process group: a Ctrl-C or a harness
+        // group kill that ends the caller before Drop runs also reaches Chrome.
+        // Other Unix teardown signals the group, so Chrome leads its own there.
+        #[cfg(not(target_os = "linux"))]
+        command.process_group(0);
         // --use-gl=disabled --disable-software-rasterizer: with --disable-gpu alone, Chrome 153
         // headless on aarch64 (DGX Spark, no display) falls back to a SwiftShader GPU process and
         // Page.captureScreenshot then gets no reply at all (sovereign-core #661; main 92df274c).
-        let spawned = Command::new(binary)
-            .env(TAG_VAR, &tag)
-            .process_group(0)
+        let spawned = command
             .arg("--headless=new")
             .arg("--remote-debugging-port=0")
             .arg(format!("--user-data-dir={}", profile_dir.display()))
