@@ -24,6 +24,8 @@ struct Fake {
     fed: Arc<AtomicUsize>,
     /// The rows each step fed, in order.
     log: StepLog,
+    /// Logits read back (feeds that asked for them).
+    reads: Arc<AtomicUsize>,
 }
 
 impl Fake {
@@ -36,6 +38,7 @@ impl Fake {
                 steps: 0,
                 fed: Arc::clone(&fed),
                 log: Arc::new(Mutex::new(Vec::new())),
+                reads: Arc::new(AtomicUsize::new(0)),
             },
             fed,
         )
@@ -84,6 +87,9 @@ impl RowStep for Fake {
             *st = mix(*st ^ (u64::from(f.token) << 20) ^ *pos as u64);
             *pos += 1;
             self.fed.fetch_add(1, Ordering::SeqCst);
+            if f.logits {
+                self.reads.fetch_add(1, Ordering::SeqCst);
+            }
             let logits: Vec<f32> = (0..VOCAB)
                 .map(|j| (mix(*st ^ j as u64) % 1_000_000) as f32)
                 .collect();
@@ -126,9 +132,73 @@ fn door_with(
         Duration::from_secs(5),
         per_beat,
         chip_greedy,
+        FirstToken::Host,
     )
     .unwrap();
     (d, fed)
+}
+
+/// DRA-87: a chip-greedy door with `first` and its fake's count of logits read back.
+fn first_door(first: FirstToken) -> (Qwen36BatchDoor, Arc<AtomicUsize>) {
+    let (f, _) = Fake::new(2, None);
+    let reads = Arc::clone(&f.reads);
+    let d =
+        Qwen36BatchDoor::with_stepper(f, 4096, lock_file(), Duration::from_secs(5), 4, true, first)
+            .unwrap();
+    (d, reads)
+}
+
+/// DRA-87, the batch door: with the chip's first token every greedy reply (prompts both under
+/// `Q36_PREFILL_MIN`, fed token by token, and chunked through `prefill_row`) is word for word
+/// the host-first-token reply and the request alone, and reads no logits at all (today: one read,
+/// the prompt's last); a sampled reply still reads the logits every token, the same words as
+/// with the flag off. The mutant (the slices' red arm) changes token 0, so this test can fail.
+#[test]
+fn chip_first_token_matches_the_host_and_reads_no_logits() {
+    let (host, host_reads) = first_door(FirstToken::Host);
+    let (chip, chip_reads) = first_door(FirstToken::Chip);
+    let (bad, _) = first_door(FirstToken::ChipMutant);
+    let mut long = prompts()[3].0.clone();
+    long.extend((0..150u32).map(|k| (k * 13 + 5) % VOCAB as u32));
+    let mut cases: Vec<(Vec<u32>, usize)> = prompts();
+    cases.push((long, 6));
+    for (p, n) in &cases {
+        let (h0, c0) = (
+            host_reads.load(Ordering::SeqCst),
+            chip_reads.load(Ordering::SeqCst),
+        );
+        let (hw, _) = run(&host, p, &greedy(*n));
+        let (cw, co) = run(&chip, p, &greedy(*n));
+        assert_eq!(cw, hw, "len {}", p.len());
+        assert_eq!(cw, alone(p, *n), "len {}", p.len());
+        assert_eq!(host_reads.load(Ordering::SeqCst) - h0, 1, "len {}", p.len());
+        assert_eq!(chip_reads.load(Ordering::SeqCst) - c0, 0, "len {}", p.len());
+        let rec = co.sampling.expect("sampling record");
+        assert_eq!(rec.greedy_tokens, cw.len(), "len {}", p.len());
+        let (bw, _) = run(&bad, p, &greedy(*n));
+        assert_ne!(
+            bw[0],
+            hw[0],
+            "the mutant must move token 0 (len {})",
+            p.len()
+        );
+        let sampled = GenerateParams {
+            temperature: 0.8,
+            top_p: 0.9,
+            seed: 7,
+            ..greedy(*n)
+        };
+        let c1 = chip_reads.load(Ordering::SeqCst);
+        let (hs, _) = run(&host, p, &sampled);
+        let (cs, _) = run(&chip, p, &sampled);
+        assert_eq!(cs, hs, "sampled, len {}", p.len());
+        assert_eq!(
+            chip_reads.load(Ordering::SeqCst) - c1,
+            *n,
+            "sampled, len {}",
+            p.len()
+        );
+    }
 }
 
 fn greedy(n: usize) -> GenerateParams {
@@ -364,6 +434,7 @@ fn switched_door(rows: usize) -> Qwen36BatchDoor {
         Duration::from_secs(5),
         4,
         true,
+        FirstToken::Host,
     )
     .unwrap()
 }
@@ -555,8 +626,16 @@ type StepLog = Arc<Mutex<Vec<Vec<usize>>>>;
 fn logged_door(rows: usize) -> (Arc<Qwen36BatchDoor>, StepLog) {
     let (f, _) = Fake::new(rows, None);
     let log = Arc::clone(&f.log);
-    let d = Qwen36BatchDoor::with_stepper(f, 4096, lock_file(), Duration::from_secs(5), 1, true)
-        .unwrap();
+    let d = Qwen36BatchDoor::with_stepper(
+        f,
+        4096,
+        lock_file(),
+        Duration::from_secs(5),
+        1,
+        true,
+        FirstToken::Host,
+    )
+    .unwrap();
     (Arc::new(d), log)
 }
 
@@ -776,8 +855,16 @@ fn a_reader_that_stops_reading_is_dropped_and_the_others_finish() {
     let (f, _) = Fake::new(2, None);
     let lock = lock_file();
     let d = Arc::new(
-        Qwen36BatchDoor::with_stepper(f, 4096, lock.clone(), Duration::from_secs(5), 1, true)
-            .unwrap(),
+        Qwen36BatchDoor::with_stepper(
+            f,
+            4096,
+            lock.clone(),
+            Duration::from_secs(5),
+            1,
+            true,
+            FirstToken::Host,
+        )
+        .unwrap(),
     );
     let (release, hold) = mpsc::channel::<()>();
     let stalled = {

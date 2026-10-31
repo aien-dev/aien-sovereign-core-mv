@@ -36,8 +36,8 @@ use crate::engine::{
 };
 use crate::omega_engine::{GpuLock, GPU_LOCK_PATH};
 use crate::qwen38_engine::{
-    admit_load, is_moe_dir, rss_bytes, CHIP_GREEDY_ENV, KEEP_FREE, LOAD_LOCK_WAIT, PREFILL_CHUNK,
-    REQUEST_LOCK_WAIT,
+    admit_load, is_moe_dir, rss_bytes, FirstToken, CHIP_GREEDY_ENV, KEEP_FREE, LOAD_LOCK_WAIT,
+    PREFILL_CHUNK, REQUEST_LOCK_WAIT,
 };
 use crate::sampling::SamplingObserver;
 
@@ -446,6 +446,7 @@ impl Qwen36BatchDoor {
             REQUEST_LOCK_WAIT,
             per_beat,
             std::env::var(CHIP_GREEDY_ENV).as_deref() != Ok("0"),
+            FirstToken::from_env(),
         )?;
         door.slot_bytes_measured = measured;
         door.slot_bytes_on_paper = on_paper;
@@ -461,6 +462,7 @@ impl Qwen36BatchDoor {
         lock_wait: Duration,
         prompt_per_beat: usize,
         chip_greedy: bool,
+        first_token: FirstToken,
     ) -> Result<Self, String> {
         let slots = model.row_count();
         if slots == 0 {
@@ -487,6 +489,7 @@ impl Qwen36BatchDoor {
             pf_chunk: env_usize("AIEN_Q36_PREFILL_CHUNK", Q36_PREFILL_CHUNK).min(Q36_PREFILL_CHUNK),
             pf_min: env_usize("AIEN_Q36_PREFILL_MIN", Q36_PREFILL_MIN).max(1),
             chip_greedy,
+            first_token,
             beat: 0,
         };
         std::thread::Builder::new()
@@ -681,6 +684,9 @@ struct Scheduler<S: RowStep> {
     pf_min: usize,
     /// Greedy replies take the graph's token (`AIEN_SERVE_CHIP_GREEDY=0` turns it off).
     chip_greedy: bool,
+    /// DRA-87: a greedy row's first token from the graph's argmax at the end of its prompt
+    /// (`AIEN_SERVE_CHIP_FIRST_TOKEN=1`): its last prompt feed reads no logits.
+    first_token: FirstToken,
     beat: u64,
 }
 
@@ -807,7 +813,9 @@ impl<S: RowStep> Scheduler<S> {
                         continue;
                     }
                     let (from, end) = (a.fed, a.fed + n);
-                    let logits = end == plen;
+                    let last = end == plen;
+                    let chip_first = last && a.chip_greedy && self.first_token.chip();
+                    let logits = last && !chip_first;
                     let t = Instant::now();
                     let r = self
                         .model
@@ -828,6 +836,9 @@ impl<S: RowStep> Scheduler<S> {
                             }
                             if logits {
                                 a.logits = o.logits;
+                            }
+                            if chip_first {
+                                a.chip_next = Some(self.first_token.emit(o.token));
                             }
                             chunked[k] = true;
                         }
@@ -874,7 +885,8 @@ impl<S: RowStep> Scheduler<S> {
                         feed.push(RowFeed {
                             row: a.row,
                             token: a.job.prompt[a.fed],
-                            logits: a.fed + 1 == plen,
+                            logits: a.fed + 1 == plen
+                                && !(a.chip_greedy && self.first_token.chip()),
                         });
                         who.push(k);
                         tests.push(row_test(&a.job.test));
@@ -916,6 +928,9 @@ impl<S: RowStep> Scheduler<S> {
                                 if !a.prefilling() {
                                     a.prefill_ms = a.t_admit.elapsed().as_millis() as u64;
                                     a.t_decode = Instant::now();
+                                    if a.chip_greedy && self.first_token.chip() {
+                                        a.chip_next = Some(self.first_token.emit(o.token));
+                                    }
                                 }
                             } else {
                                 a.next = None;
