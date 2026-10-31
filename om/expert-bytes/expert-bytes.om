@@ -1,0 +1,869 @@
+note om/expert-bytes/expert-bytes.om: per-expert byte accounting for Qwen3.6-35B-A3B-FP8 from the safetensors
+note headers alone (DRA-63, aien-dev/aien-sovereign-core-mv#855). Usage: expert-bytes MODEL_DIR WIDTH SCALE_BYTES.
+note Reads the 8-byte header length and the JSON header of every *.safetensors file in MODEL_DIR; never reads
+note tensor data. Matches model.language_model.layers.L.mlp.experts.E.{gate,up,down}_proj.{weight,weight_scale_inv}
+note for L 0..39 and E 0..255 and requires, for the expected WIDTH (moe_intermediate_size) and SCALE_BYTES (2 = BF16,
+note 4 = F32) at hidden 2048 and 128 x 128 scale blocks:
+note   weight dtype F8_E4M3, shape gate/up [WIDTH, 2048], down [2048, WIDTH], 2048 * WIDTH bytes each;
+note   scale dtype BF16 or F32, shape gate/up [WIDTH/128, 16], down [16, WIDTH/128];
+note   every data_offsets span equal to the element count times the header dtype size;
+note   per expert, header weight bytes = 3 * 2048 * WIDTH and header scale bytes = 3 * (WIDTH/128) * 16 * SCALE_BYTES;
+note   all six tensors present exactly once for each of the 40 * 256 experts.
+note MTP experts (mtp.*) are counted and excluded. Exit 0 PASS, 1 FAIL (any mismatch), 2 usage, 3 io, 4 header.
+note Build: { printf 'om2\n'; cat om/vendor/json.om om/expert-bytes/expert-bytes.om; } | "$AIEN_OMC" > expert-bytes
+
+const ebx ulong 999999999
+const ebh ulong 2048
+const ebly ulong 40
+const ebne ulong 256
+
+note gst slots
+const kw ulong 0
+const ks ulong 1
+const kop ulong 3
+const ktn ulong 4
+const kdt ulong 5
+const ksh ulong 6
+const kext ulong 7
+const kmt ulong 8
+const ksz ulong 9
+const kdl ulong 10
+const kmb ulong 11
+const kfil ulong 12
+const koor ulong 13
+const kdup ulong 14
+const ktot ulong 15
+const knp ulong 16
+const kok ulong 17
+const krk ulong 18
+const kd0 ulong 19
+const kd1 ulong 20
+const kdsz ulong 21
+const kdok ulong 22
+const kb ulong 23
+const ke ulong 24
+const kfn ulong 26
+const kmiss ulong 27
+const kmin ulong 28
+const kmax ulong 29
+const kwbad ulong 30
+const ksbad ulong 31
+const kfo ulong 32
+const kep ulong 33
+
+global ga uchar 8192
+global gas ulong 4
+global gal ulong 4
+global gpth uchar 4352
+global gdb uchar 32768
+global gnm uchar 16384
+global gno ulong 256
+global gnl ulong 256
+global gstb uchar 128
+global gh8 uchar 8
+global gwb ulong 10240
+global gsb ulong 10240
+global gmk uchar 10240
+global gst ulong 48
+global gob uchar 2048
+global geb uchar 512
+global gdg uchar 24
+
+text tusage "usage: expert-bytes MODEL_DIR WIDTH SCALE_BYTES (WIDTH a positive multiple of 128, SCALE_BYTES 2 or 4)"
+text tio "io"
+text tnreg "not-regular-file"
+text thlen "header-length"
+text thjs "header-json"
+text thent "header-entry"
+text tnames "name-capacity"
+text tref "expert-bytes refused "
+text tsuf ".safetensors"
+text tmeta "__metadata__"
+text tmtp "mtp."
+text tlay "model.language_model.layers."
+text texps "mlp.experts."
+text tgw "gate_proj.weight"
+text tgs "gate_proj.weight_scale_inv"
+text tuw "up_proj.weight"
+text tus "up_proj.weight_scale_inv"
+text tdw "down_proj.weight"
+text tds "down_proj.weight_scale_inv"
+text tdtype "dtype"
+text tshape "shape"
+text tdoff "data_offsets"
+text tf8 "F8_E4M3"
+text tbf16 "BF16"
+text tf16 "F16"
+text tf32 "F32"
+text thead "expert-bytes verdict "
+text tpass "PASS"
+text tfail "FAIL"
+text o1 "width"
+text o2 "scale_bytes"
+text o3 "layers"
+text o4 "experts"
+text o5 "tensors"
+text o6 "expect_expert"
+text o7 "expect_weight"
+text o8 "expect_scale"
+text o9 "seen_expert_min"
+text o10 "seen_expert_max"
+text o11 "seen_weight_0_0"
+text o12 "seen_scale_0_0"
+text o13 "experts_ok"
+text o14 "weight_bad"
+text o15 "scale_bad"
+text o16 "missing"
+text o17 "dtype_bad"
+text o18 "shape_bad"
+text o19 "extent_bad"
+text o20 "duplicate"
+text o21 "out_of_range"
+text o22 "mtp_excluded_tensors"
+text o23 "mtp_excluded_bytes"
+text o24 "total_bytes"
+text o25 "files"
+
+note ======== output ========
+
+fn eb_dec v ulong to ulong
+n = ulong 0
+x = v
+while true bound 25
+put gdg n add 48 uchar rem x 10
+n = add n 1
+x = div x 10
+if eq x 0
+break
+end
+end
+ret n
+end
+
+fn eb_ob c uchar to void
+p = get gst kop
+if lt p len gob
+put gob p c
+put gst kop add p 1
+end
+end
+
+fn eb_otx t view uchar * to void
+for i ulong len t
+eb_ob get t i
+end
+end
+
+fn eb_ou v ulong to void
+n = eb_dec v
+for i ulong n
+eb_ob get gdg sub sub n i 1
+end
+end
+
+fn eb_kv t view uchar * v ulong to void
+eb_ob 32
+eb_otx t
+eb_ob 32
+eb_ou v
+end
+
+fn eb_oflush fd int to void
+o = ulong 0
+m = get gst kop
+while lt o m bound 4096
+w = write fd gob o sub m o
+if le w 0
+exit 3
+end
+o = add o ulong w
+end
+put gst kop 0
+end
+
+fn eb_die c ulong t view uchar * to void
+put gst kop 0
+eb_otx tref
+eb_ou c
+eb_ob 32
+eb_otx t
+eb_ob 10
+eb_oflush 2
+exit int c
+end
+
+note ======== names ========
+
+note eb_pre: nm[p ..] starts with t within n bytes; eb_rest: nm[p .. n) equals t exactly
+fn eb_pre nm view uchar * n ulong p ulong t view uchar * to bool
+if gt p n
+ret false
+end
+if gt len t sub n p
+ret false
+end
+for i ulong len t
+if ne get nm add p i get t i
+ret false
+end
+end
+ret true
+end
+
+fn eb_rest nm view uchar * n ulong p ulong t view uchar * to bool
+if not eb_pre nm n p t
+ret false
+end
+ret eq add p len t n
+end
+
+note eb_has: t occurs anywhere in nm[0 .. n)
+fn eb_has nm view uchar * n ulong t view uchar * to bool
+if gt len t n
+ret false
+end
+for i ulong add sub n len t 1
+if eb_pre nm n i t
+ret true
+end
+end
+ret false
+end
+
+note eb_num: 1..3 decimal digits at nm[p] without a leading zero, then '.'; the value (ebx when
+note malformed) and the position after the '.' in gst knp
+fn eb_num nm view uchar * n ulong p ulong to ulong
+v = ulong 0
+q = p
+for i ulong 4
+if ge q n
+ret ebx
+end
+c = get nm q
+if eq c 46
+if or eq q p and gt sub q p 1 eq get nm p 48
+ret ebx
+end
+put gst knp add q 1
+ret v
+end
+if or lt c 48 gt c 57
+ret ebx
+end
+v = add mul v 10 sub ulong c 48
+q = add q 1
+end
+ret ebx
+end
+
+note eb_part: the tensor part after "mlp.experts.E.": 2 * proj (gate 0, up 1, down 2) + kind (weight 0, scale 1)
+fn eb_part nm view uchar * n ulong p ulong to ulong
+if eb_rest nm n p tgw
+ret 0
+end
+if eb_rest nm n p tgs
+ret 1
+end
+if eb_rest nm n p tuw
+ret 2
+end
+if eb_rest nm n p tus
+ret 3
+end
+if eb_rest nm n p tdw
+ret 4
+end
+if eb_rest nm n p tds
+ret 5
+end
+ret ebx
+end
+
+note ======== expectations from WIDTH and SCALE_BYTES ========
+
+note eb_edim: expected dimension i (0 or 1) of part pt; down_proj is [2048, w], gate/up are [w, 2048];
+note a scale divides both by the 128 x 128 block
+fn eb_edim pt ulong i ulong to ulong
+w = get gst kw
+h = ebh
+if eq rem pt 2 1
+w = div w 128
+h = div h 128
+end
+dn = eq div pt 2 2
+if eq i 0
+if dn
+ret h
+end
+ret w
+end
+if dn
+ret w
+end
+ret h
+end
+
+fn eb_ewt to ulong
+ret mul 3 mul ebh get gst kw
+end
+
+fn eb_esc to ulong
+ret mul mul 3 mul div get gst kw 128 div ebh 128 get gst ks
+end
+
+note ======== files ========
+
+fn eb_le64 o ulong to ulong
+v = ulong 0
+for i ulong 8
+v = or v shl ulong get gstb add o i mul 8 i
+end
+ret v
+end
+
+fn eb_h64 to ulong
+v = ulong 0
+for i ulong 8
+v = or v shl ulong get gh8 i mul 8 i
+end
+ret v
+end
+
+note eb_open: open gpth[0 .. n) with O_RDONLY | O_CLOEXEC | O_NOFOLLOW (arm64 557056), require a regular
+note file (st_mode & S_IFMT 61440 == S_IFREG 32768), leave st_size in gst ksz
+fn eb_open n ulong to long
+fd = fopen gpth 0 n 557056 0
+if lt fd 0
+if eq fd -40
+eb_die 3 tnreg
+end
+eb_die 3 tio
+end
+r = fstat int fd gstb 0 128
+if ne r 0
+eb_die 3 tio
+end
+md = or ulong get gstb 16 shl ulong get gstb 17 8
+if ne and md 61440 32768
+eb_die 3 tnreg
+end
+put gst ksz eb_le64 48
+ret fd
+end
+
+fn eb_pfull fd long b edit uchar * n ulong pos ulong to void
+o = ulong 0
+while lt o n bound 999999
+r = pread int fd b o sub n o long add pos o
+if le r 0
+eb_die 3 tio
+end
+o = add o ulong r
+end
+end
+
+fn eb_close fd long to void
+r = fclose int fd
+if ne r 0
+eb_die 3 tio
+end
+end
+
+note eb_argp: copy argument a into gpth; its length
+fn eb_argp a ulong to ulong
+n = get gal a
+if or eq n 0 gt n 4000
+eb_die 2 tusage
+end
+o = get gas a
+for i ulong n
+put gpth i get ga add o i
+end
+ret n
+end
+
+note eb_adec: argument a as a decimal of 1..6 digits; ebx otherwise
+fn eb_adec a ulong to ulong
+n = get gal a
+if or eq n 0 gt n 6
+ret ebx
+end
+o = get gas a
+v = ulong 0
+for i ulong n
+c = get ga add o i
+if or lt c 48 gt c 57
+ret ebx
+end
+v = add mul v 10 sub ulong c 48
+end
+ret v
+end
+
+note eb_dname: keep the directory entry name at gdb[s ..] (NUL-terminated within cap) when it ends in .safetensors
+fn eb_dname s ulong cap ulong to void
+n = ulong 0
+while lt n cap bound 4096
+if eq get gdb add s n 0
+break
+end
+n = add n 1
+end
+if le n len tsuf
+ret
+end
+q = add s sub n len tsuf
+for i0 ulong len tsuf
+if ne get gdb add q i0 get tsuf i0
+ret
+end
+end
+f = get gst kfn
+o = get gst kfo
+if or ge f len gno gt add o n len gnm
+eb_die 3 tnames
+end
+for i ulong n
+put gnm add o i get gdb add s i
+end
+put gno f o
+put gnl f n
+put gst kfn add f 1
+put gst kfo add o n
+end
+
+fn eb_list to void
+n = eb_argp 1
+fd = fopen gpth 0 n 540672 0
+if lt fd 0
+eb_die 3 tio
+end
+while true bound 999
+r = getdnts int fd gdb 0 len gdb
+if lt r 0
+eb_die 3 tio
+end
+if eq r 0
+break
+end
+o = ulong 0
+while lt o ulong r bound 999999
+rl = or ulong get gdb add o 16 shl ulong get gdb add o 17 8
+if lt rl 20
+eb_die 3 tio
+end
+eb_dname add o 19 sub rl 19
+o = add o rl
+end
+end
+eb_close fd
+end
+
+note eb_path: gpth = MODEL_DIR '/' name j; its length
+fn eb_path j ulong to ulong
+d = eb_argp 1
+n = get gnl j
+if gt add add d 1 n 4095
+eb_die 3 tnames
+end
+put gpth d 47
+o = get gno j
+for i ulong n
+put gpth add add d 1 i get gnm add o i
+end
+ret add add d 1 n
+end
+
+note ======== one header entry ========
+
+fn eb_dsz src view uchar * o ulong to ulong
+if js_streq src o tf8
+ret 1
+end
+if js_streq src o tbf16
+ret 2
+end
+if js_streq src o tf16
+ret 2
+end
+if js_streq src o tf32
+ret 4
+end
+ret 0
+end
+
+fn eb_dtok src view uchar * o ulong pt ulong to bool
+if eq rem pt 2 0
+ret js_streq src o tf8
+end
+if eq get gst ks 2
+ret js_streq src o tbf16
+end
+ret js_streq src o tf32
+end
+
+note eb_shp: rank and the first two dimensions of shape array x into gst krk, kd0, kd1
+fn eb_shp src view uchar * tape view uint * x ulong to void
+if ne js_type tape x jsarr
+eb_die 4 thent
+end
+put gst krk js_nkids tape x
+put gst kd0 ebx
+put gst kd1 ebx
+e = js_first tape x
+i = ulong 0
+while ne e jsnone bound 64
+if ne js_type tape e jsnum
+eb_die 4 thent
+end
+o = js_off tape e
+if not js_isu src o
+eb_die 4 thent
+end
+if lt i 2
+put gst add kd0 i js_tou src o
+end
+i = add i 1
+e = js_enext tape e
+end
+end
+
+fn eb_off src view uchar * tape view uint * x ulong to void
+if ne js_type tape x jsarr
+eb_die 4 thent
+end
+if ne js_nkids tape x 2
+eb_die 4 thent
+end
+e = js_first tape x
+f = js_enext tape e
+if or ne js_type tape e jsnum ne js_type tape f jsnum
+eb_die 4 thent
+end
+if not and js_isu src js_off tape e js_isu src js_off tape f
+eb_die 4 thent
+end
+put gst kb js_tou src js_off tape e
+put gst ke js_tou src js_off tape f
+end
+
+note eb_val: entry v must be exactly {dtype, shape, data_offsets}; observations into gst; the dtype checked
+note against part pt's expectation (pt ebx: no expectation)
+fn eb_val src view uchar * tape view uint * v ulong pt ulong to void
+if ne js_type tape v jsobj
+eb_die 4 thent
+end
+if ne js_nkids tape v 3
+eb_die 4 thent
+end
+put gst kdok 0
+f = ulong 0
+k = js_first tape v
+for i ulong 3
+o = js_off tape k
+x = add k 1
+if js_streq src o tdtype
+if ne and f 1 0
+eb_die 4 thent
+end
+f = or f 1
+if ne js_type tape x jsstr
+eb_die 4 thent
+end
+put gst kdsz eb_dsz src js_off tape x
+if ne pt ebx
+if eb_dtok src js_off tape x pt
+put gst kdok 1
+end
+end
+else
+if js_streq src o tshape
+if ne and f 2 0
+eb_die 4 thent
+end
+f = or f 2
+eb_shp src tape x
+else
+if not js_streq src o tdoff
+eb_die 4 thent
+end
+if ne and f 4 0
+eb_die 4 thent
+end
+f = or f 4
+eb_off src tape x
+end
+end
+k = js_mnext tape k
+end
+end
+
+fn eb_inc s ulong to void
+put gst s add get gst s 1
+end
+
+note eb_chk: count dtype, shape and extent mismatches for part pt
+fn eb_chk pt ulong to void
+if eq get gst kdok 0
+eb_inc kdt
+end
+d0 = get gst kd0
+d1 = get gst kd1
+rk = get gst krk
+if or ne rk 2 or ne d0 eb_edim pt 0 ne d1 eb_edim pt 1
+eb_inc ksh
+end
+b = get gst kb
+e = get gst ke
+if or gt b e gt e get gst kdl
+eb_inc kext
+ret
+end
+if or ne rk 2 eq get gst kdsz 0
+eb_inc kext
+ret
+end
+if ne sub e b mul mul d0 d1 get gst kdsz
+eb_inc kext
+end
+end
+
+fn eb_acct ly ulong ex ulong pt ulong to void
+i = add mul ly ebne ex
+bit = shl ulong 1 pt
+m = ulong get gmk i
+if ne and m bit 0
+eb_inc kdup
+ret
+end
+put gmk i uchar or m bit
+sp = sub get gst ke get gst kb
+if eq rem pt 2 0
+put gwb i add get gwb i sp
+else
+put gsb i add get gsb i sp
+end
+eb_inc ktn
+put gst ktot add get gst ktot sp
+end
+
+fn eb_mtp src view uchar * tape view uint * v ulong to void
+eb_val src tape v ebx
+eb_inc kmt
+put gst kmb add get gst kmb sub get gst ke get gst kb
+end
+
+fn eb_entry src view uchar 983040 tape view uint 262160 nb edit uchar 1024 k ulong to void
+r = js_sget src js_off tape k nb
+if lt r 0
+eb_die 4 thent
+end
+n = ulong r
+if eb_rest nb n 0 tmeta
+ret
+end
+if eb_pre nb n 0 tmtp
+if eb_has nb n texps
+eb_mtp src tape add k 1
+end
+ret
+end
+if not eb_pre nb n 0 tlay
+ret
+end
+ly = eb_num nb n len tlay
+if eq ly ebx
+ret
+end
+p = get gst knp
+if not eb_pre nb n p texps
+ret
+end
+ex = eb_num nb n add p len texps
+if eq ex ebx
+ret
+end
+pt = eb_part nb n get gst knp
+if eq pt ebx
+ret
+end
+if or ge ly ebly ge ex ebne
+eb_inc koor
+ret
+end
+eb_val src tape add k 1 pt
+eb_chk pt
+eb_acct ly ex pt
+end
+
+fn eb_file src edit uchar 983040 tape edit uint 262160 nb edit uchar 1024 j ulong to void
+fd = eb_open eb_path j
+sz = get gst ksz
+if lt sz 8
+eb_die 4 thlen
+end
+r8 = pread int fd gh8 0 8 long 0
+if ne r8 8
+eb_die 3 tio
+end
+hl = eb_h64
+if or lt hl 2 gt hl len src
+eb_die 4 thlen
+end
+if gt hl sub sz 8
+eb_die 4 thlen
+end
+eb_pfull fd src hl 8
+eb_close fd
+put gst kdl sub sub sz 8 hl
+r = js_init tape hl 64
+if lt r 0
+eb_die 4 thjs
+end
+r = js_parse src tape hl
+if lt r 0
+eb_die 4 thjs
+end
+if ne js_type tape 0 jsobj
+eb_die 4 thent
+end
+k = js_first tape 0
+while ne k jsnone bound 999999
+eb_entry src tape nb k
+k = js_mnext tape k
+end
+eb_inc kfil
+end
+
+note ======== verdict ========
+
+fn eb_one i ulong to void
+w = get gwb i
+s = get gsb i
+t = add w s
+if lt t get gst kmin
+put gst kmin t
+end
+if gt t get gst kmax
+put gst kmax t
+end
+ok = true
+if ne w eb_ewt
+eb_inc kwbad
+ok = false
+end
+if ne s eb_esc
+eb_inc ksbad
+ok = false
+end
+if ok
+eb_inc kok
+end
+end
+
+fn eb_scan to void
+put gst kmin ebx
+put gst kmax 0
+for i ulong mul ebly ebne
+if ne get gmk i 63
+eb_inc kmiss
+else
+eb_one i
+end
+end
+end
+
+fn eb_pass to bool
+if ne get gst kok mul ebly ebne
+ret false
+end
+if ne get gst ktn mul 6 mul ebly ebne
+ret false
+end
+if ne or or get gst kdt get gst ksh get gst kext 0
+ret false
+end
+ret eq or or get gst kdup get gst koor get gst kmiss 0
+end
+
+fn eb_rep1 to void
+eb_kv o1 get gst kw
+eb_kv o2 get gst ks
+eb_kv o3 ebly
+eb_kv o4 ebne
+eb_kv o5 get gst ktn
+eb_kv o6 add eb_ewt eb_esc
+eb_kv o7 eb_ewt
+eb_kv o8 eb_esc
+eb_kv o9 get gst kmin
+eb_kv o10 get gst kmax
+eb_kv o11 get gwb 0
+eb_kv o12 get gsb 0
+end
+
+fn eb_rep2 to void
+eb_kv o13 get gst kok
+eb_kv o14 get gst kwbad
+eb_kv o15 get gst ksbad
+eb_kv o16 get gst kmiss
+eb_kv o17 get gst kdt
+eb_kv o18 get gst ksh
+eb_kv o19 get gst kext
+eb_kv o20 get gst kdup
+eb_kv o21 get gst koor
+eb_kv o22 get gst kmt
+eb_kv o23 get gst kmb
+eb_kv o24 get gst ktot
+eb_kv o25 get gst kfil
+eb_ob 10
+end
+
+fn main to int
+c = argcnt
+if ne c 4
+eb_die 2 tusage
+end
+o = ulong 0
+for i ulong 4
+r = argread i ga o sub len ga o
+if lt r 0
+eb_die 2 tusage
+end
+put gas i o
+put gal i ulong r
+o = add o ulong r
+end
+w = eb_adec 2
+s = eb_adec 3
+if or or eq w ebx eq w 0 ne rem w 128 0
+eb_die 2 tusage
+end
+if and ne s 2 ne s 4
+eb_die 2 tusage
+end
+put gst kw w
+put gst ks s
+eb_list
+src = new uchar 983040 0
+tape = new uint 262160 0
+nb = new uchar 1024 0
+for j ulong get gst kfn
+eb_file src tape nb j
+end
+eb_scan
+pass = eb_pass
+put gst kop 0
+eb_otx thead
+if pass
+eb_otx tpass
+else
+eb_otx tfail
+end
+eb_rep1
+eb_rep2
+eb_oflush 1
+if pass
+ret 0
+end
+ret 1
+end
