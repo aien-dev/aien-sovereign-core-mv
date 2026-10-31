@@ -955,11 +955,15 @@ impl PoolSnap for (u64, usize) {
             .then(|| (w(0), w(1) as usize))
             .ok_or_else(|| "16 bytes".to_string())
     }
+    fn pos(&self) -> Option<usize> {
+        Some(self.1)
+    }
 }
 
 /// A door with the shared prompt cache (checkpoint every `every` tokens).
 fn pool_door(rows: usize, every: usize, mutant: bool) -> (Qwen36BatchDoor, Arc<AtomicUsize>) {
     let cfg = PoolConfig::from_lookup(|k| match k {
+        "AIEN_Q36_PREFIX" => Some("1".into()),
         "AIEN_Q36_PREFIX_EVERY" => Some(every.to_string()),
         "AIEN_Q36_PREFIX_MUTANT" => mutant.then(|| "1".into()),
         _ => None,
@@ -1134,4 +1138,41 @@ fn a_graph_mutant_row_starts_its_next_conversation_cold() {
     p2.extend(&w[..5]);
     p2.extend([IM_START, 8, 9, 10]);
     assert_eq!(run_test(&d, &p2, 6, TestSwitches::default()), alone(&p2, 6));
+}
+
+// ---- DRA-86: a refused pool node is read cold, never restored ----
+
+/// A one-row door whose pool already holds a spoiled node for `b[..n]`: `kv_len` K/V values,
+/// a state that is not `b`'s, saved under tag 0 and then bound to `tag`. `unchecked`: the
+/// base's restore without the refusal checks (the negative control).
+fn spoiled_door(b: &[u32], n: usize, kv_len: usize, tag: [u8; 32], unchecked: bool) -> Qwen36BatchDoor {
+    let cfg = PoolConfig::from_lookup(|k| (k == "AIEN_Q36_PREFIX").then(|| "1".into())).unwrap();
+    let mut pool = PrefixPool::new(&cfg);
+    assert!(pool.insert(b[..n].to_vec(), None, vec![7; kv_len], (0xdead_beef, n)));
+    pool.bind_tag(tag);
+    pool.set_unchecked(unchecked);
+    let (f, _) = Fake::new(1, None);
+    Qwen36BatchDoor::with_stepper_pool(
+        f,
+        4096,
+        lock_file(),
+        Duration::from_secs(5),
+        16,
+        true,
+        pool,
+    )
+    .unwrap()
+}
+
+#[test]
+fn a_stale_or_short_pool_node_is_refused_and_the_prompt_read_cold() {
+    let b = hermes(60, 120);
+    let cold = alone(&b, 12);
+    // Another model/lib tag; then a K/V piece one position short under the pool's own tag.
+    for (what, kv_len, tag) in [("stale tag", 100, [9; 32]), ("K/V length", 99, [0; 32])] {
+        let (w, _) = run(&spoiled_door(&b, 100, kv_len, tag, false), &b, &greedy(12));
+        assert_eq!(w, cold, "{what}: the refused node was not read cold");
+        let (w, _) = run(&spoiled_door(&b, 100, kv_len, tag, true), &b, &greedy(12));
+        assert_ne!(w, cold, "{what}: the unchecked base should restore the spoiled node");
+    }
 }

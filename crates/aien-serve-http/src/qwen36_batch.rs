@@ -1120,15 +1120,27 @@ impl<S: RowStep> Scheduler<S> {
         let lru = (0..self.free.len())
             .min_by_key(|&i| self.rows[self.free[i]].last_used)
             .expect("admit is called with a free row");
-        let (i, reused, from_snap) = match (from_pool, best) {
+        let (i, mut reused, from_snap) = match (from_pool, best) {
             (Some((_, n)), _) => (lru, n, false),
             (None, Some(b)) => b,
             (None, None) => (lru, 0, false),
         };
         let row = self.free.swap_remove(i);
+        let mut from_pool = from_pool;
         let r = if let Some((id, n)) = from_pool {
             let off = job.test.prefix_mutant == Some(true);
-            self.restore_from_pool(row, id, &job.prompt[..n], off)
+            match self.restore_from_pool(row, id, &job.prompt[..n], off) {
+                Ok(true) => Ok(()),
+                Ok(false) => {
+                    // Refused before any write: the row reads the whole prompt cold.
+                    from_pool = None;
+                    reused = 0;
+                    let rr = &mut self.rows[row];
+                    rr.tainted = false;
+                    self.model.row_reset(row)
+                }
+                Err(e) => Err(e),
+            }
         } else {
             let rr = &mut self.rows[row];
             if from_snap {
@@ -1234,37 +1246,39 @@ impl<S: RowStep> Scheduler<S> {
     }
 
     /// Copies pool node `id` (the state after `tokens`) into `row`: the K/V pieces root first,
-    /// then the DeltaNet state and position. On an error the row's state is unknown (the caller
-    /// empties its bookkeeping; the next cold join resets it). `off_by_one` (the merge train's
-    /// `prefix_mutant`, or `AIEN_Q36_PREFIX_MUTANT` for the whole door): the gate's control, the
-    /// row continues one position early.
+    /// then the DeltaNet state and position. `Ok(false)`: the pool refused the node (stale tag,
+    /// other tokens, a K/V gap or length, a state at another position) before anything was
+    /// written; the caller reads the prompt cold. On an error the row's state is unknown (the
+    /// caller empties its bookkeeping; the next cold join resets it). `off_by_one` (the merge
+    /// train's `prefix_mutant`, or `AIEN_Q36_PREFIX_MUTANT` for the whole door): the gate's
+    /// control, the row continues one position early.
     fn restore_from_pool(
         &mut self,
         row: usize,
         id: u64,
         tokens: &[u32],
         off_by_one: bool,
-    ) -> Result<(), String> {
+    ) -> Result<bool, String> {
         let off_by_one = off_by_one || self.pool.mutant();
         let t = Instant::now();
         let rr = &mut self.rows[row];
         rr.history.clear();
         rr.snap_tokens.clear(); // the K/V below rewrites what the row's own copy relies on
         let vals = self.model.row_kv_values();
-        let rs = self.pool.restore(id).ok_or("prompt cache: node gone")?;
-        if rs.pos != tokens.len() {
-            return Err(format!(
-                "prompt cache: node holds {} tokens, not {}",
-                rs.pos,
-                tokens.len()
-            ));
-        }
+        let rs = match self.pool.restore(id, tokens, vals) {
+            Ok(rs) => rs,
+            Err(why) => {
+                eprintln!(
+                    "aien-serve-http: qwen36-batch: prompt cache restore refused ({} tok, row {row}): {why}; reading cold",
+                    tokens.len()
+                );
+                return Ok(false);
+            }
+        };
+        let resident = rs.resident;
         let mut bytes = 0usize;
         for &(from, kv) in &rs.kv {
             let count = kv.len().checked_div(vals).unwrap_or(0);
-            if count * vals != kv.len() {
-                return Err("prompt cache: K/V piece of another shape".into());
-            }
             self.model.row_kv_write(row, from, count, kv)?;
             bytes += kv.len() * 2;
         }
@@ -1276,13 +1290,14 @@ impl<S: RowStep> Scheduler<S> {
         }
         self.rows[row].history = tokens.to_vec();
         eprintln!(
-            "aien-serve-http: qwen36-batch: prompt cache restore: {} tok into row {row}, {:.1} MiB in {} ms{}",
+            "aien-serve-http: qwen36-batch: prompt cache restore: {} tok into row {row}, {:.1} MiB in {} ms, conversation resident {:.1} MiB{}",
             tokens.len(),
             bytes as f64 / (1u64 << 20) as f64,
             t.elapsed().as_millis(),
+            resident as f64 / (1u64 << 20) as f64,
             if off_by_one { " (POSITION MUTANT)" } else { "" },
         );
-        Ok(())
+        Ok(true)
     }
 
     /// Where the pool saves this prompt's state on the way in (ascending, past `reused`, before
@@ -1347,14 +1362,19 @@ impl<S: RowStep> Scheduler<S> {
                 let bytes = kv.len() * 2 + snap.host_bytes();
                 let kept = self.pool.insert(tokens.to_vec(), parent, kv, snap);
                 let c = self.pool.counters();
+                let (cn, cb) = self.pool.resident(tokens).unwrap_or((0, 0));
                 eprintln!(
-                    "aien-serve-http: qwen36-batch: prompt cache save: {} tok (K/V from {from}) from row {row}, {:.1} MiB in {} ms{}; pool {} nodes {:.1} MiB",
+                    "aien-serve-http: qwen36-batch: prompt cache save: {} tok (K/V from {from}) from row {row}, {:.1} MiB in {} ms{}; conversation resident {cn} nodes {:.1} MiB; pool {} nodes {:.1} MiB of {:.1} GiB, {} evicted, {} refused",
                     tokens.len(),
                     bytes as f64 / (1u64 << 20) as f64,
                     t.elapsed().as_millis(),
                     if kept { "" } else { ", over budget, dropped" },
+                    cb as f64 / (1u64 << 20) as f64,
                     c.nodes,
                     c.bytes as f64 / (1u64 << 20) as f64,
+                    self.pool.budget() as f64 / (1u64 << 30) as f64,
+                    c.evicted,
+                    c.refused,
                 );
             }
             Err(e) => eprintln!(
@@ -1470,13 +1490,20 @@ fn open_pool(
     let cfg = PoolConfig::from_env()?;
     let mut pool = PrefixPool::new(&cfg);
     if !pool.on() {
-        eprintln!("aien-serve-http: qwen36-batch: prompt cache off (AIEN_Q36_PREFIX_POOL_GB=0)");
+        eprintln!(
+            "aien-serve-http: qwen36-batch: prompt cache off (needs AIEN_Q36_PREFIX=1 and AIEN_Q36_PREFIX_POOL_GB > 0)"
+        );
         return Ok(pool);
     }
     let kv_values = model.row_kv_values();
     let mut probe = Qwen38Snapshot::default();
     model.row_snapshot(0, &mut probe)?;
     let snap_bytes = probe.bytes();
+    let env = numeric_env(std::env::vars());
+    let lib = aien_omega_gpu::native_identity().archive_sha256;
+    // In memory the weights are this process's own; the tag binds the chip library, the state
+    // shape and the numeric switches (a node of another tag is refused at restore).
+    pool.bind_tag(namespace(&[0; 32], lib, kv_values, snap_bytes, &env));
     eprintln!(
         "aien-serve-http: qwen36-batch: prompt cache on: budget {:.1} GiB, checkpoint every {} tok, K/V {} B per token, state {:.1} MiB per checkpoint{}",
         cfg.budget as f64 / (1u64 << 30) as f64,
@@ -1494,7 +1521,6 @@ fn open_pool(
             sdir.display()
         );
     };
-    let env = numeric_env(std::env::vars());
     if cfg.mutant
         || env
             .iter()
@@ -1503,7 +1529,6 @@ fn open_pool(
         off("a mutant or test switch is set (its states are never stored)".into());
         return Ok(pool);
     }
-    let lib = aien_omega_gpu::native_identity().archive_sha256;
     if lib.is_empty() {
         off("the linked libomega_gpu.a has no sha256".into());
         return Ok(pool);

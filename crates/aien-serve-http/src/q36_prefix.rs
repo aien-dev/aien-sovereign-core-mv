@@ -15,7 +15,8 @@
 //! position, and every later token runs the same kernels in the same order.
 //!
 //! Memory: LRU by bytes over the leaves (a parent outlives its children), budget
-//! `AIEN_Q36_PREFIX_POOL_GB` (default 8; 0 turns the pool off).
+//! `AIEN_Q36_PREFIX_POOL_GB` (default 16; 0 turns the pool off). The pool runs only with
+//! `AIEN_Q36_PREFIX=1` (DRA-86: default off).
 //!
 //! Disk (coordinator 12:07Z, Drake: "11,000 words can stay where they need to stay"): with
 //! `AIEN_Q36_PREFIX_DIR` set (a private directory, `AIEN_KV_STORE_KEY` required) every node is
@@ -38,8 +39,10 @@ use sha2::{Digest, Sha256};
 
 /// Tokens between two checkpoints of one prompt (`AIEN_Q36_PREFIX_EVERY`).
 pub const EVERY: usize = 2048;
-/// Default pool budget in GiB (`AIEN_Q36_PREFIX_POOL_GB`).
-pub const POOL_GB: f64 = 8.0;
+/// Default pool budget in GiB (`AIEN_Q36_PREFIX_POOL_GB`; DRA-86 G4: 16 GiB).
+pub const POOL_GB: f64 = 16.0;
+/// The switch: the shared prompt cache runs only with `AIEN_Q36_PREFIX=1` (default off).
+pub const SWITCH_ENV: &str = "AIEN_Q36_PREFIX";
 /// Bump when an sc change moves a state byte for the same lib and weights (stored files made
 /// before it are then never opened).
 pub const NUMERICS_EPOCH: u32 = 1;
@@ -61,6 +64,11 @@ pub trait PoolSnap: Send + Sync + 'static {
     fn from_bytes(b: &[u8]) -> Result<Self, String>
     where
         Self: Sized;
+    /// The position the state continues at, when the state records it (a restore refuses a
+    /// state whose position is not the node's token count).
+    fn pos(&self) -> Option<usize> {
+        None
+    }
 }
 
 impl PoolSnap for aien_inference_abi::qwen38_omega::Qwen38Snapshot {
@@ -75,6 +83,9 @@ impl PoolSnap for aien_inference_abi::qwen38_omega::Qwen38Snapshot {
     }
     fn from_bytes(b: &[u8]) -> Result<Self, String> {
         Self::from_bytes(b)
+    }
+    fn pos(&self) -> Option<usize> {
+        Some(self.pos)
     }
 }
 
@@ -93,6 +104,11 @@ impl PoolConfig {
     }
 
     pub fn from_lookup(get: impl Fn(&str) -> Option<String>) -> Result<Self, String> {
+        let on = match get(SWITCH_ENV).as_deref() {
+            None | Some("") | Some("0") => false,
+            Some("1") => true,
+            Some(v) => return Err(format!("{SWITCH_ENV}={v}: 0 or 1")),
+        };
         let gb = match get("AIEN_Q36_PREFIX_POOL_GB") {
             Some(v) => v
                 .parse::<f64>()
@@ -110,7 +126,11 @@ impl PoolConfig {
             None => EVERY,
         };
         Ok(Self {
-            budget: (gb * (1u64 << 30) as f64) as usize,
+            budget: if on {
+                (gb * (1u64 << 30) as f64) as usize
+            } else {
+                0
+            },
             every,
             dir: get("AIEN_Q36_PREFIX_DIR")
                 .filter(|s| !s.is_empty())
@@ -129,6 +149,8 @@ pub struct Node<S> {
     kv: Arc<Vec<u16>>,
     snap: Arc<S>,
     digest: [u8; 32],
+    /// The pool's tag (model, chip library, state shape, numeric switches) when it was saved.
+    tag: [u8; 32],
     children: usize,
     last_used: u64,
 }
@@ -144,6 +166,46 @@ pub struct Restore<'a, S> {
     pub pos: usize,
     pub kv: Vec<(usize, &'a [u16])>,
     pub snap: &'a S,
+    /// The bytes this conversation's chain holds resident in the pool (every node root first).
+    pub resident: usize,
+}
+
+/// Why a restore was refused (the row then reads the prompt cold; nothing was written to it).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Refused {
+    /// The node was evicted.
+    Gone,
+    /// A node of the chain was saved under another model, chip library or switch tag.
+    Stale { pos: usize },
+    /// The node's tokens (or their digest) are not the prompt's.
+    TokenMismatch { pos: usize },
+    /// A K/V piece does not start where the one before ended.
+    KvGap { kv_from: usize, expected: usize },
+    /// A K/V piece holds another number of values than its span.
+    KvLength { pos: usize, values: usize, expected: usize },
+    /// The state continues at another position than the node's token count.
+    StateLength { state: usize, pos: usize },
+}
+
+impl std::fmt::Display for Refused {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Gone => write!(f, "node gone"),
+            Self::Stale { pos } => write!(f, "stale node at {pos} (another model/lib tag)"),
+            Self::TokenMismatch { pos } => write!(f, "node at {pos} holds other tokens"),
+            Self::KvGap { kv_from, expected } => {
+                write!(f, "K/V gap: piece starts at {kv_from}, not {expected}")
+            }
+            Self::KvLength {
+                pos,
+                values,
+                expected,
+            } => write!(f, "K/V of node at {pos}: {values} values, not {expected}"),
+            Self::StateLength { state, pos } => {
+                write!(f, "state continues at {state}, node holds {pos} tokens")
+            }
+        }
+    }
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -156,6 +218,7 @@ pub struct PoolCounters {
     pub evicted: u64,
     pub loaded: u64,
     pub discarded: u64,
+    pub refused: u64,
 }
 
 /// The shared pool (owned by the scheduler thread).
@@ -169,6 +232,9 @@ pub struct PrefixPool<S> {
     mutant: bool,
     store: Option<Store>,
     counters: PoolCounters,
+    tag: [u8; 32],
+    /// Test-only: restore without the refusal checks (the unchecked base, as a negative control).
+    unchecked: bool,
 }
 
 fn digest_of(tokens: &[u32]) -> [u8; 32] {
@@ -196,7 +262,90 @@ impl<S: PoolSnap> PrefixPool<S> {
             mutant: cfg.mutant,
             store: None,
             counters: PoolCounters::default(),
+            tag: [0; 32],
+            unchecked: false,
         }
+    }
+
+    /// Binds the pool to `tag` (the model, chip library, state shape and numeric switches): a
+    /// node saved under another tag is refused at restore and dropped.
+    pub fn bind_tag(&mut self, tag: [u8; 32]) {
+        self.tag = tag;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_unchecked(&mut self, on: bool) {
+        self.unchecked = on;
+    }
+
+    /// The bytes the chain ending at the node for `tokens` holds resident (nodes, bytes): one
+    /// conversation's share of the pool.
+    pub fn resident(&self, tokens: &[u32]) -> Option<(usize, usize)> {
+        let (&id, _) = self.nodes.iter().find(|(_, n)| n.tokens[..] == *tokens)?;
+        let chain = self.chain(id)?;
+        Some((
+            chain.len(),
+            chain.iter().map(|i| self.nodes[i].bytes()).sum(),
+        ))
+    }
+
+    /// Node `id` and its ancestors, deepest first.
+    fn chain(&self, id: u64) -> Option<Vec<u64>> {
+        let mut chain = Vec::new();
+        let mut at = Some(id);
+        while let Some(i) = at {
+            chain.push(i);
+            at = self.nodes.get(&i)?.parent;
+        }
+        Some(chain)
+    }
+
+    /// Why node `id` must not be restored as the state after `tokens` with `kv_values` K/V
+    /// values per position, if it must not.
+    fn check(&self, chain: &[u64], tokens: &[u32], kv_values: usize) -> Result<(), Refused> {
+        let deepest = &self.nodes[&chain[0]];
+        if deepest.tokens[..] != *tokens || deepest.digest != digest_of(tokens) {
+            return Err(Refused::TokenMismatch {
+                pos: deepest.tokens.len(),
+            });
+        }
+        let mut expected = 0;
+        for i in chain.iter().rev() {
+            let n = &self.nodes[i];
+            let pos = n.tokens.len();
+            if n.tag != self.tag {
+                return Err(Refused::Stale { pos });
+            }
+            if !tokens.starts_with(&n.tokens) {
+                return Err(Refused::TokenMismatch { pos });
+            }
+            if n.kv_from != expected || n.kv_from > pos {
+                return Err(Refused::KvGap {
+                    kv_from: n.kv_from,
+                    expected,
+                });
+            }
+            let want = (pos - n.kv_from) * kv_values;
+            if n.kv.len() != want {
+                return Err(Refused::KvLength {
+                    pos,
+                    values: n.kv.len(),
+                    expected: want,
+                });
+            }
+            expected = pos;
+        }
+        match deepest.snap.pos() {
+            Some(state) if state != tokens.len() => Err(Refused::StateLength {
+                state,
+                pos: tokens.len(),
+            }),
+            _ => Ok(()),
+        }
+    }
+
+    pub fn budget(&self) -> usize {
+        self.budget
     }
 
     pub fn on(&self) -> bool {
@@ -256,19 +405,41 @@ impl<S: PoolSnap> PrefixPool<S> {
         }
     }
 
-    /// The copies a restore of node `id` writes (and marks the chain used).
-    pub fn restore(&mut self, id: u64) -> Option<Restore<'_, S>> {
+    /// The copies a restore of node `id` as the state after `tokens` (with `kv_values` K/V values
+    /// per position) writes, and marks the chain used. Refused, nothing is to be written: a
+    /// stale chain is dropped with every other node of another tag, a broken leaf is dropped.
+    pub fn restore(
+        &mut self,
+        id: u64,
+        tokens: &[u32],
+        kv_values: usize,
+    ) -> Result<Restore<'_, S>, Refused> {
+        let chain = self.chain(id).ok_or(Refused::Gone)?;
+        if !self.unchecked {
+            if let Err(e) = self.check(&chain, tokens, kv_values) {
+                self.counters.refused += 1;
+                if matches!(e, Refused::Stale { .. }) {
+                    let tag = self.tag;
+                    while let Some(v) = self
+                        .nodes
+                        .iter()
+                        .find(|(_, n)| n.tag != tag && n.children == 0)
+                        .map(|(&i, _)| i)
+                    {
+                        self.remove(v);
+                    }
+                } else if self.nodes[&id].children == 0 {
+                    self.remove(id);
+                }
+                return Err(e);
+            }
+        }
         self.clock += 1;
-        let mut chain = Vec::new();
-        let mut at = Some(id);
-        while let Some(i) = at {
-            let n = self.nodes.get_mut(&i)?;
-            n.last_used = self.clock;
-            chain.push(i);
-            at = n.parent;
+        for i in &chain {
+            self.nodes.get_mut(i).expect("chain node").last_used = self.clock;
         }
         let deepest = &self.nodes[&id];
-        Some(Restore {
+        Ok(Restore {
             pos: deepest.tokens.len(),
             kv: chain
                 .iter()
@@ -279,6 +450,7 @@ impl<S: PoolSnap> PrefixPool<S> {
                 })
                 .collect(),
             snap: &deepest.snap,
+            resident: chain.iter().map(|i| self.nodes[i].bytes()).sum(),
         })
     }
 
@@ -338,6 +510,7 @@ impl<S: PoolSnap> PrefixPool<S> {
             snap,
             children: 0,
             last_used: self.clock,
+            tag: self.tag,
         };
         self.bytes += n.bytes();
         self.nodes.insert(id, n);
@@ -355,17 +528,22 @@ impl<S: PoolSnap> PrefixPool<S> {
                 .map(|(&i, _)| i)
                 .or_else(|| self.nodes.contains_key(&fresh).then_some(fresh));
             let Some(v) = victim else { break };
-            let n = self.nodes.remove(&v).expect("victim");
-            self.bytes -= n.bytes();
-            if let Some(p) = n.parent {
-                if let Some(pn) = self.nodes.get_mut(&p) {
-                    pn.children -= 1;
-                }
-            }
-            if let Some(st) = &self.store {
-                st.delete(&n.digest, n.tokens.len());
-            }
+            self.remove(v);
             self.counters.evicted += 1;
+        }
+    }
+
+    /// Drops leaf `v` (and its stored file).
+    fn remove(&mut self, v: u64) {
+        let n = self.nodes.remove(&v).expect("victim");
+        self.bytes -= n.bytes();
+        if let Some(p) = n.parent {
+            if let Some(pn) = self.nodes.get_mut(&p) {
+                pn.children -= 1;
+            }
+        }
+        if let Some(st) = &self.store {
+            st.delete(&n.digest, n.tokens.len());
         }
     }
 
@@ -506,6 +684,7 @@ pub fn numeric_env(vars: impl Iterator<Item = (String, String)>) -> Vec<(String,
         (k.starts_with("AIEN_Q36_") || k.starts_with("AIEN_OMEGA_"))
             && (!k.starts_with("AIEN_Q36_PREFIX_") || k == MUTANT_ENV)
             && k != "AIEN_Q36_PROMPT_PER_BEAT"
+            && k != SWITCH_ENV
             && k != "AIEN_OMEGA_GPU_LIB"
     })
     .collect()
