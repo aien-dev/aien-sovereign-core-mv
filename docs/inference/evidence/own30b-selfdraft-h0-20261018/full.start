@@ -1,0 +1,4 @@
+start 2026-10-18T06:11:33Z sc 12e71aad80fda23a428317d11b0dac02d1c777f1 +uncommitted draft-mask diff; omega 4799f9eb physics 6d7cf0d4
+6d23d7e6de832434e5ad3a2a8e5cda6c53706d46ca3592ac9b148a237cef8e7c  /tmp/own30b_selfdraft.bin
+cmd env AIEN_OMEGA_SPIN_US=2000 own30b_selfdraft <ckpt> docs/inference/evidence/own30b-selfdraft-h0-20261018/full --new 256 --rs 16,32,64 --ks 4,8,16,32 --cross-check 3 --force-memory
+note: gb10 lock held by stuck aien-test worker (see smoke.start); run without flock

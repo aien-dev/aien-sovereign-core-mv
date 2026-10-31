@@ -1,0 +1,50 @@
+mem available before load: 43.9 GB
+build native=true spin_us=Some(2000)
+LOAD 69.8s resident 30.53 GB attention fused device_routing true
+CALIB R=16 trace-coverage 0.3823 (300658/786432 routed picks)
+CALIB R=32 trace-coverage 0.6047 (475536/786432 routed picks)
+CALIB R=64 trace-coverage 0.8652 (680391/786432 routed picks)
+CALIB 8 prompts, 2048 decode tokens traced, 69.0s
+EVAL prompt 00 prompt_tokens 17 generated 256 mean L 0.77/1.70/4.86
+EVAL prompt 01 prompt_tokens 22 generated 256 mean L 1.02/2.35/4.61
+EVAL prompt 02 prompt_tokens 25 generated 256 mean L 1.03/1.78/9.88
+EVAL prompt 03 prompt_tokens 21 generated 256 mean L 1.86/4.94/20.16
+EVAL prompt 04 prompt_tokens 18 generated 256 mean L 1.05/3.26/8.55
+EVAL prompt 05 prompt_tokens 21 generated 256 mean L 0.79/1.98/9.57
+EVAL prompt 06 prompt_tokens 17 generated 256 mean L 1.09/3.71/8.44
+EVAL prompt 07 prompt_tokens 21 generated 191 mean L 0.86/2.51/5.10
+EVAL prompt 08 prompt_tokens 19 generated 256 mean L 0.99/2.01/7.27
+EVAL prompt 09 prompt_tokens 18 generated 256 mean L 0.77/1.41/5.10
+EVAL prompt 10 prompt_tokens 25 generated 256 mean L 0.91/2.25/7.87
+EVAL prompt 11 prompt_tokens 14 generated 256 mean L 0.95/3.45/7.88
+EVAL prompt 12 prompt_tokens 25 generated 256 mean L 0.87/2.08/8.49
+EVAL prompt 13 prompt_tokens 17 generated 256 mean L 1.56/4.30/11.63
+EVAL prompt 14 prompt_tokens 17 generated 256 mean L 0.71/2.54/6.41
+EVAL prompt 15 prompt_tokens 19 generated 256 mean L 0.95/2.61/4.70
+EVAL prompt 16 prompt_tokens 20 generated 87 mean L 0.64/1.99/4.41
+EVAL prompt 17 prompt_tokens 18 generated 256 mean L 0.83/2.27/8.55
+EVAL prompt 18 prompt_tokens 23 generated 256 mean L 0.89/1.94/5.91
+EVAL prompt 19 prompt_tokens 22 generated 256 mean L 0.86/2.06/4.88
+EVAL run lengths 2627.4s
+ACCEPT R=16 k=4 tokens 4886 blocks 2620 accepted_draft 2266 tokens_per_block 1.865 accept_rate 0.2162
+ACCEPT R=16 k=8 tokens 4886 blocks 2565 accepted_draft 2321 tokens_per_block 1.905 accept_rate 0.1131
+ACCEPT R=16 k=16 tokens 4886 blocks 2564 accepted_draft 2322 tokens_per_block 1.906 accept_rate 0.0566
+ACCEPT R=16 k=32 tokens 4886 blocks 2564 accepted_draft 2322 tokens_per_block 1.906 accept_rate 0.0283
+ACCEPT R=32 k=4 tokens 4886 blocks 1896 accepted_draft 2990 tokens_per_block 2.577 accept_rate 0.3943
+ACCEPT R=32 k=8 tokens 4886 blocks 1695 accepted_draft 3191 tokens_per_block 2.883 accept_rate 0.2353
+ACCEPT R=32 k=16 tokens 4886 blocks 1635 accepted_draft 3251 tokens_per_block 2.988 accept_rate 0.1243
+ACCEPT R=32 k=32 tokens 4886 blocks 1629 accepted_draft 3257 tokens_per_block 2.999 accept_rate 0.0625
+ACCEPT R=64 k=4 tokens 4886 blocks 1249 accepted_draft 3637 tokens_per_block 3.912 accept_rate 0.7280
+ACCEPT R=64 k=8 tokens 4886 blocks 879 accepted_draft 4007 tokens_per_block 5.559 accept_rate 0.5698
+ACCEPT R=64 k=16 tokens 4886 blocks 705 accepted_draft 4181 tokens_per_block 6.930 accept_rate 0.3707
+ACCEPT R=64 k=32 tokens 4886 blocks 655 accepted_draft 4231 tokens_per_block 7.460 accept_rate 0.2019
+CROSS prompt 00 R=16 k=8 literal blocks 144 simulated 144 tokens_match true OK
+CROSS prompt 00 R=32 k=8 literal blocks 107 simulated 107 tokens_match true OK
+CROSS prompt 00 R=64 k=8 literal blocks 43 simulated 43 tokens_match true OK
+CROSS prompt 01 R=16 k=8 literal blocks 134 simulated 134 tokens_match true OK
+CROSS prompt 01 R=32 k=8 literal blocks 90 simulated 90 tokens_match true OK
+CROSS prompt 01 R=64 k=8 literal blocks 53 simulated 53 tokens_match true OK
+CROSS prompt 02 R=16 k=8 literal blocks 133 simulated 133 tokens_match true OK
+CROSS prompt 02 R=32 k=8 literal blocks 101 simulated 101 tokens_match true OK
+CROSS prompt 02 R=64 k=8 literal blocks 35 simulated 35 tokens_match true OK
+SUMMARY eval_prompts 20 tokens 4886 cross_check PASS
