@@ -1,0 +1,329 @@
+note SPDX-License-Identifier: Apache-2.0
+note om/golden/fake.om: TEST ONLY fake HTTP responder for om/golden/check.sh. It is not an engine and
+note never produces a REAL record: check.sh records against it with label FAKE.
+note   fake PORTFILE CANNED CAPTURE N
+note Binds 127.0.0.1 on a kernel-chosen port, writes "PORT\n" to PORTFILE (created, never overwritten),
+note then serves exactly N connections in order: connection k reads one HTTP/1.1 request (headers up to
+note 65536 bytes, body by Content-Length), stores the raw request bytes as CAPTURE/k.http and answers
+note with the bytes of CANNED/k.http verbatim. Exit 0 after N connections; 10 usage, 11 socket,
+note 12 file, 13 malformed request.
+
+const FQCAP ulong 1048576
+const FHCAP ulong 65536
+
+global fa uchar 8192
+global fas ulong 8
+global fal ulong 8
+global fp uchar 4200
+global fq uchar 1048576
+global fr uchar 1048576
+global fb uchar 64
+global fst uchar 128
+
+text tfpre "fake: exit "
+text tfsuf ".http"
+text tfcl "content-length:"
+
+fn fx code int to void
+d = new uchar 3 0
+w = write 2 tfpre 0 len tfpre
+put d 0 uchar add 48 div code 10
+put d 1 uchar add 48 rem code 10
+put d 2 10
+w = write 2 d 0 3
+exit code
+end
+
+note fpath: fp = argument a, a slash, decimal k, .http; returns the length
+fn fpath a ulong k ulong to ulong
+n = get fal a
+if or eq n 0 gt n 4096
+fx 10
+end
+o = get fas a
+for i ulong n
+put fp i get fa add o i
+end
+put fp n 47
+n = add n 1
+if ge k 100
+put fp n uchar add 48 div k 100
+n = add n 1
+end
+if ge k 10
+put fp n uchar add 48 rem div k 10 10
+n = add n 1
+end
+put fp n uchar add 48 rem k 10
+n = add n 1
+for j ulong len tfsuf
+put fp add n j get tfsuf j
+end
+ret add n len tfsuf
+end
+
+note fcreate: write fq[0..n) to the new file fp[0..pn) (O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC, 0600)
+fn fcreate pn ulong n ulong to void
+fd = int fopen fp 0 pn 557249 384
+if lt fd 0
+fx 12
+end
+o = ulong 0
+while lt o n bound 999999
+r = write fd fq o sub n o
+if le r 0
+fx 12
+end
+o = add o ulong r
+end
+if ne fclose fd 0
+fx 12
+end
+end
+
+fn fle64 o ulong to ulong
+v = ulong 0
+for i ulong 8
+v = or v shl ulong get fst add o i mul 8 i
+end
+ret v
+end
+
+note fload: read the regular file fp[0..pn) into fr (O_RDONLY|O_CLOEXEC|O_NOFOLLOW); returns its size
+fn fload pn ulong to ulong
+fd = int fopen fp 0 pn 557056 0
+if lt fd 0
+fx 12
+end
+if ne fstat fd fst 0 128 0
+fx 12
+end
+sz = fle64 48
+if gt sz FQCAP
+fx 12
+end
+o = ulong 0
+while lt o sz bound 999999
+q = pread fd fr o sub sz o long o
+if le q 0
+fx 12
+end
+o = add o ulong q
+end
+if ne fclose fd 0
+fx 12
+end
+ret sz
+end
+
+fn fcrlf i ulong to bool
+ret and eq get fq i 13 eq get fq add i 1 10
+end
+
+note fhend: the offset just past the first CR LF CR LF in fq[0..n), or 0
+fn fhend n ulong to ulong
+if lt n 4
+ret 0
+end
+for i ulong sub n 3
+if and fcrlf i fcrlf add i 2
+ret add i 4
+end
+end
+ret 0
+end
+
+fn flow c uchar to uchar
+if and ge c 65 le c 90
+ret uchar add c 32
+end
+ret c
+end
+
+fn fiscl p ulong h ulong to bool
+if gt add p len tfcl h
+ret false
+end
+for i ulong len tfcl
+if ne flow get fq add p i get tfcl i
+ret false
+end
+end
+ret true
+end
+
+fn fblank q ulong to bool
+ret or eq get fq q 32 eq get fq q 9
+end
+
+fn fdig q ulong to bool
+ret and ge get fq q 48 le get fq q 57
+end
+
+note fcval: the decimal after optional blanks at p; 13 on a missing or oversized value
+fn fcval p ulong h ulong to ulong
+q = p
+while and lt q h fblank q bound 65536
+q = add q 1
+end
+v = ulong 0
+d = ulong 0
+while and lt q h fdig q bound 65536
+v = add mul v 10 ulong sub get fq q 48
+if gt v FQCAP
+fx 13
+end
+d = add d 1
+q = add q 1
+end
+if eq d 0
+fx 13
+end
+ret v
+end
+
+note fclen: Content-Length of the header block fq[0..h), 0 when absent
+fn fclen h ulong to ulong
+p = ulong 0
+while lt p h bound 65536
+if fiscl p h
+ret fcval add p len tfcl h
+end
+while and lt p h ne get fq p 10 bound 65536
+p = add p 1
+end
+p = add p 1
+end
+ret 0
+end
+
+note frdreq: read one request from connection a into fq; returns its byte count
+fn frdreq a int to ulong
+n = ulong 0
+h = ulong 0
+while eq h 0 bound 65536
+if ge n FHCAP
+fx 13
+end
+r = recv a fq n sub FHCAP n 0
+if le r 0
+fx 13
+end
+n = add n ulong r
+h = fhend n
+end
+t = add h fclen h
+if gt t FQCAP
+fx 13
+end
+while lt n t bound 999999
+r = recv a fq n sub t n 0
+if le r 0
+fx 13
+end
+n = add n ulong r
+end
+if ne n t
+fx 13
+end
+ret t
+end
+
+fn fsendall a int n ulong to void
+o = ulong 0
+while lt o n bound 999999
+r = send a fr o sub n o 0
+if le r 0
+fx 11
+end
+o = add o ulong r
+end
+end
+
+fn fserve s int k ulong to void
+a = int accept s 0
+if lt a 0
+fx 11
+end
+t = frdreq a
+fcreate fpath 3 k t
+fsendall a fload fpath 2 k
+if ne fclose a 0
+fx 11
+end
+end
+
+note fport: bind 127.0.0.1:0, listen, write the chosen port to argument 1; returns the socket
+fn fport to int
+s = int socknew 2 1 0
+if lt s 0
+fx 11
+end
+put fb 0 2
+put fb 4 127
+put fb 7 1
+if ne bind s fb 0 16 0
+fx 11
+end
+if ne listen s 16 0
+fx 11
+end
+if ne sockname s fb 0 64 16
+fx 11
+end
+v = add mul ulong get fb 2 256 ulong get fb 3
+note the port digits go through fq, which holds no request yet
+k = ulong 0
+x = v
+while gt x 0 bound 6
+x = div x 10
+k = add k 1
+end
+x = v
+for i ulong k
+put fq sub sub k 1 i uchar add 48 rem x 10
+x = div x 10
+end
+put fq k 10
+n = get fal 1
+o = get fas 1
+for i ulong n
+put fp i get fa add o i
+end
+fcreate n add k 1
+ret s
+end
+
+fn main to int
+c = argcnt
+if ne c 5
+fx 10
+end
+o = ulong 0
+for i ulong ulong c
+r = argread i fa o sub len fa o
+if lt r 0
+fx 10
+end
+put fas i o
+put fal i ulong r
+o = add o ulong r
+end
+nn = ulong 0
+o = get fas 4
+for i ulong get fal 4
+x = get fa add o i
+if or lt x 48 gt x 57
+fx 10
+end
+nn = add mul nn 10 ulong sub x 48
+if gt nn 999
+fx 10
+end
+end
+s = fport
+for k ulong nn
+fserve s k
+end
+ret 0
+end

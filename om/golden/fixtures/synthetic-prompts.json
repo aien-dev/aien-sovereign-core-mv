@@ -1,0 +1,4 @@
+{"schema":"aien-golden-prompts/1","enable_thinking":false,"prompts":[
+{"id":"p0","content":"SYNTHETIC fixture prompt zero"},
+{"id":"p1","content":"SYNTHETIC fixture prompt one: \"quoted\" \u00e9"}
+]}
