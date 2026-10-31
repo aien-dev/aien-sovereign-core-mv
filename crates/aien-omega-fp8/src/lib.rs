@@ -88,6 +88,10 @@ pub struct GemmInfo {
     pub call_ns: u64,
     pub completion_marker: u32,
     pub kernel_cache_hit: bool,
+    /// 1: the call ran the general fallback, not the grouped GEMM kernel. CUDApp appended it
+    /// (f95dca3, sizeof 80 -> 88) and writes it; omega a647b6a9 writes only the first 80 bytes,
+    /// so it stays 0 there. Without it a CUDApp-linked call writes 8 bytes past this struct.
+    pub general: u32,
 }
 
 /// Mirror of `OmegaGpuFp8Info`: what the chip did for one call.
@@ -113,6 +117,9 @@ pub struct Fp8Info {
     pub kernel_cache_hit: bool,
     pub target_chip: [u8; 64],
     pub sm_architecture: u32,
+    /// 1: the call ran the general fallback, not the GEMV kernel. CUDApp appended it in what was
+    /// tail padding (offset 156, sizeof stays 160); omega a647b6a9 leaves it 0.
+    pub general: u32,
 }
 
 impl Default for Fp8Info {
@@ -788,10 +795,12 @@ mod tests {
     fn info_layout_matches_the_c_struct() {
         // Measured with cc against omega_gpu_fp8_api.h (own30b/integration da9a3d67):
         // sizeof 160, weight_bytes at 48, kernel_cache_hit at 84, sm_architecture at 152.
+        // CUDApp 4bbccf08 appends `uint32_t general` at 156 (tail padding, sizeof stays 160).
         assert_eq!(std::mem::size_of::<Fp8Info>(), 160);
         assert_eq!(std::mem::offset_of!(Fp8Info, weight_bytes), 48);
         assert_eq!(std::mem::offset_of!(Fp8Info, kernel_cache_hit), 84);
         assert_eq!(std::mem::offset_of!(Fp8Info, sm_architecture), 152);
+        assert_eq!(std::mem::offset_of!(Fp8Info, general), 156);
     }
 
     #[test]
@@ -799,7 +808,8 @@ mod tests {
         // Measured with cc against omega_gpu_fp8gemm_api.h (own30b/integration 967b14c5):
         // sizeof 80, passes_max at 36, weight_bytes at 40, streamed_bytes at 48, elapsed_ns at 56,
         // call_ns at 64, completion_marker at 72, kernel_cache_hit at 76.
-        assert_eq!(std::mem::size_of::<GemmInfo>(), 80);
+        // CUDApp 4bbccf08 (cc): `uint32_t general` at 80, sizeof 88.
+        assert_eq!(std::mem::size_of::<GemmInfo>(), 88);
         assert_eq!(std::mem::offset_of!(GemmInfo, passes_max), 36);
         assert_eq!(std::mem::offset_of!(GemmInfo, weight_bytes), 40);
         assert_eq!(std::mem::offset_of!(GemmInfo, streamed_bytes), 48);
@@ -807,5 +817,55 @@ mod tests {
         assert_eq!(std::mem::offset_of!(GemmInfo, call_ns), 64);
         assert_eq!(std::mem::offset_of!(GemmInfo, completion_marker), 72);
         assert_eq!(std::mem::offset_of!(GemmInfo, kernel_cache_hit), 76);
+        assert_eq!(std::mem::offset_of!(GemmInfo, general), 80);
+    }
+
+    /// The C side zeroes `sizeof` its info struct before its first argument check, so a NULL
+    /// tensor returns an error after writing every byte the linked library thinks the struct
+    /// has, without touching a device. A canary right after the mirror catches a library whose
+    /// struct grew past it (CUDApp 4bbccf08 GemmInfo with the 80-byte mirror zeroes the canary).
+    #[cfg(has_omega_fp8gemm)]
+    #[test]
+    fn the_linked_library_writes_no_byte_past_the_info_mirrors() {
+        const CANARY: u64 = 0xA5A5_A5A5_A5A5_A5A5;
+        #[repr(C)]
+        struct GuardedGemm {
+            info: GemmInfo,
+            canary: u64,
+        }
+        #[repr(C)]
+        struct GuardedGemv {
+            info: Fp8Info,
+            canary: u64,
+        }
+        let mut g = GuardedGemm { info: GemmInfo::default(), canary: CANARY };
+        // SAFETY: every pointer but `info` is NULL; the call refuses (BAD_ARGS) after zeroing *info.
+        let rc = unsafe {
+            ffi::omega_gpu_fp8gemm_f32(
+                std::ptr::null(),
+                1,
+                std::ptr::null(),
+                std::ptr::null(),
+                std::ptr::null(),
+                1,
+                std::ptr::null_mut(),
+                &mut g.info,
+            )
+        };
+        assert_ne!(rc, 0);
+        assert_eq!(g.canary, CANARY, "omega_gpu_fp8gemm_f32 wrote past GemmInfo");
+        let mut v = GuardedGemv { info: Fp8Info::default(), canary: CANARY };
+        // SAFETY: as above; the NULL tensor is refused after *info is zeroed.
+        let rc = unsafe {
+            ffi::omega_gpu_fp8_gemv_f32(
+                std::ptr::null(),
+                0,
+                std::ptr::null(),
+                std::ptr::null_mut(),
+                &mut v.info,
+            )
+        };
+        assert_ne!(rc, 0);
+        assert_eq!(v.canary, CANARY, "omega_gpu_fp8_gemv_f32 wrote past Fp8Info");
     }
 }
