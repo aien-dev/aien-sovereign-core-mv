@@ -19,6 +19,15 @@
 //! [`check`] holds a file to that shape, and `q36-decode-timeline-check` runs it and prints a
 //! Wolfram-ready summary. Each stamp sits after a launch's wait-for-idle and adds a timestamp
 //! report, so the stamps cost chip time: a timeline run is never a speed receipt.
+//!
+//! DRA-66, the per-token receipt: `AIEN_Q36_DECODE_TIMELINE_KIND=token` (default `launch`, the
+//! above) writes one [`TokenRecord`] (schema [`TOKEN_SCHEMA`]) per beat that fed at least one
+//! decoding row, at any number of conversations, with the chip stamps OFF (a speed receipt):
+//! the beat's period on the host clock (`total_ns`, join to the next join or idle), the chip time
+//! of every step in it (`chip_ns`, prefill chunks included) and the host's share
+//! `host_overhead_ns = total_ns - chip_ns`. `prompt_rows > 0` marks a beat a joining prompt rode
+//! in. [`check_tokens`] holds such a file to its shape; the same `--check-decode-timeline` CLI
+//! dispatches on the schema.
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
@@ -31,8 +40,78 @@ pub use aien_inference_abi::qwen38_omega::timeline_now_ns;
 
 /// The switch: a path to append the timeline to. Unset: off.
 pub const ENV: &str = "AIEN_Q36_DECODE_TIMELINE";
+/// What the switched-on door records: `launch` (default, [`Record`]) or `token` ([`TokenRecord`]).
+pub const KIND_ENV: &str = "AIEN_Q36_DECODE_TIMELINE_KIND";
 /// The record schema.
 pub const SCHEMA: &str = "aien.q36-decode-timeline/1";
+/// The per-token receipt's schema.
+pub const TOKEN_SCHEMA: &str = "aien.q36-token-receipt/1";
+
+/// Which records a switched-on door writes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    /// One stamped single-row decode beat per [`Record`] (chip stamps on: not a speed run).
+    Launch,
+    /// One [`TokenRecord`] per decoding beat, stamps off.
+    Token,
+}
+
+impl Kind {
+    /// [`KIND_ENV`]: unset or `launch` is [`Kind::Launch`], `token` is [`Kind::Token`].
+    pub fn from_env() -> Result<Self, String> {
+        match std::env::var(KIND_ENV).as_deref() {
+            Err(_) | Ok("") | Ok("launch") => Ok(Self::Launch),
+            Ok("token") => Ok(Self::Token),
+            Ok(v) => Err(format!("{KIND_ENV}={v}: launch | token")),
+        }
+    }
+}
+
+/// One decoding beat's sums, handed to [`Recorder::beat`] at the end of the beat.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct BeatSums {
+    pub beat: u64,
+    /// Decoding rows fed (tokens this beat produced for conversations past their prompt).
+    pub rows: u64,
+    /// Rows that fed prompt tokens this beat (chunks or single tokens).
+    pub prompt_rows: u64,
+    /// `step_rows` and `prefill_row` calls.
+    pub steps: u64,
+    /// The `step_rows` calls' graph stats, summed over every row's out.
+    pub launches: u64,
+    pub submits: u64,
+    pub graph_ns: u64,
+    pub record_ns: u64,
+    pub step_chip_ns: u64,
+    /// Host wall of every step call (prefill chunks included).
+    pub step_ns: u64,
+    /// Chip time of every step (prefill chunks included).
+    pub chip_ns: u64,
+}
+
+/// One decoding beat of the per-token receipt (`total_ns`, `step_ns`, `graph_ns`, `t0`, `t1` on
+/// the host clock; `chip_ns` the graphs' submit-to-marker spans, also measured on the host).
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct TokenRecord {
+    pub schema: String,
+    pub seq: u64,
+    pub beat: u64,
+    pub rows: u64,
+    pub prompt_rows: u64,
+    pub steps: u64,
+    pub launches: u64,
+    pub submits: u64,
+    pub t0: u64,
+    pub t1: u64,
+    pub total_ns: u64,
+    pub step_ns: u64,
+    pub graph_ns: u64,
+    pub record_ns: u64,
+    pub step_chip_ns: u64,
+    pub chip_ns: u64,
+    pub host_overhead_ns: u64,
+}
+
 /// The host phases of one beat, in order.
 pub const HOST_PHASES: [&str; 11] = [
     "sched_join",
@@ -151,18 +230,20 @@ fn open_record(
 /// The batch door's timeline writer (one per door, held only while [`ENV`] is set).
 pub struct Recorder {
     path: PathBuf,
+    kind: Kind,
     out: Option<BufWriter<File>>,
     /// join, sample, feed marks of the current beat.
     marks: [u64; 3],
     pending: Option<Record>,
+    pending_beat: Option<BeatSums>,
     written: u64,
     failed: u64,
     reported: (u64, u64),
 }
 
 impl Recorder {
-    /// Appends to `path` (created if missing).
-    pub fn open(path: &Path) -> Result<Self, String> {
+    /// Appends `kind` records to `path` (created if missing).
+    pub fn open(path: &Path, kind: Kind) -> Result<Self, String> {
         let f = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
@@ -170,13 +251,28 @@ impl Recorder {
             .map_err(|e| format!("decode timeline: {}: {e}", path.display()))?;
         Ok(Self {
             path: path.to_path_buf(),
+            kind,
             out: Some(BufWriter::new(f)),
             marks: [0; 3],
             pending: None,
+            pending_beat: None,
             written: 0,
             failed: 0,
             reported: (0, 0),
         })
+    }
+
+    /// True when the door must turn the chip stamps on ([`Kind::Launch`]).
+    pub fn stamps(&self) -> bool {
+        self.kind == Kind::Launch
+    }
+
+    /// A decoding beat ended ([`Kind::Token`] only; others ignore it). The record closes at
+    /// the next beat's join or at idle.
+    pub fn beat(&mut self, sums: BeatSums) {
+        if self.kind == Kind::Token && sums.rows > 0 {
+            self.pending_beat = Some(sums);
+        }
     }
 
     /// The path from [`ENV`], when set and not empty.
@@ -247,16 +343,43 @@ impl Recorder {
     }
 
     fn finish(&mut self, end: u64) {
+        if let Some(s) = self.pending_beat.take() {
+            let t0 = self.marks[0];
+            let total_ns = end.saturating_sub(t0);
+            let r = TokenRecord {
+                schema: TOKEN_SCHEMA.into(),
+                seq: self.written,
+                beat: s.beat,
+                rows: s.rows,
+                prompt_rows: s.prompt_rows,
+                steps: s.steps,
+                launches: s.launches,
+                submits: s.submits,
+                t0,
+                t1: end,
+                total_ns,
+                step_ns: s.step_ns,
+                graph_ns: s.graph_ns,
+                record_ns: s.record_ns,
+                step_chip_ns: s.step_chip_ns,
+                chip_ns: s.chip_ns,
+                host_overhead_ns: total_ns.saturating_sub(s.chip_ns),
+            };
+            self.write(serde_json::to_string(&r).expect("a record serializes"));
+        }
         let Some(mut r) = self.pending.take() else {
             return;
         };
         let post0 = r.host.last().map_or(end, |s| s.t1);
         r.host.push(span("sched_post", post0, end));
         r.seq = self.written;
+        self.write(serde_json::to_string(&r).expect("a record serializes"));
+    }
+
+    fn write(&mut self, line: String) {
         let Some(out) = self.out.as_mut() else {
             return;
         };
-        let line = serde_json::to_string(&r).expect("a record serializes");
         let res = writeln!(out, "{line}").and_then(|()| out.flush());
         match res {
             Ok(()) => self.written += 1,
@@ -458,10 +581,142 @@ pub fn summary(records: &[Record]) -> String {
     s
 }
 
+/// Holds a per-token receipt to its shape. Empty: red. For every record: the schema; `seq` its
+/// index (a dropped or repeated record breaks the run); at least one decoding row and one step;
+/// `total_ns = t1 - t0`; `record_ns <= graph_ns`, `step_chip_ns <= graph_ns`,
+/// `step_chip_ns <= chip_ns`, `graph_ns <= step_ns`, `chip_ns <= step_ns <= total_ns`;
+/// `host_overhead_ns = total_ns - chip_ns`; a beat with no prompt and one step submitted at
+/// least once and at most once per row. Across records: no overlap, and consecutive beats touch.
+pub fn check_tokens(records: &[TokenRecord]) -> Vec<String> {
+    let mut bad = Vec::new();
+    if records.is_empty() {
+        bad.push("no records".into());
+    }
+    for (i, r) in records.iter().enumerate() {
+        let at = format!("record {i} (beat {})", r.beat);
+        if r.schema != TOKEN_SCHEMA {
+            bad.push(format!("{at}: schema {}", r.schema));
+        }
+        if r.seq != i as u64 {
+            bad.push(format!("{at}: seq {} (a record is missing or repeated)", r.seq));
+        }
+        if r.rows == 0 || r.steps == 0 {
+            bad.push(format!("{at}: {} rows, {} steps", r.rows, r.steps));
+        }
+        if r.t1 < r.t0 || r.total_ns != r.t1 - r.t0 {
+            bad.push(format!("{at}: total {} for t0 {} t1 {}", r.total_ns, r.t0, r.t1));
+        }
+        let order = [
+            ("record_ns <= graph_ns", r.record_ns <= r.graph_ns),
+            ("step_chip_ns <= graph_ns", r.step_chip_ns <= r.graph_ns),
+            ("step_chip_ns <= chip_ns", r.step_chip_ns <= r.chip_ns),
+            ("graph_ns <= step_ns", r.graph_ns <= r.step_ns),
+            ("chip_ns <= step_ns", r.chip_ns <= r.step_ns),
+            ("step_ns <= total_ns", r.step_ns <= r.total_ns),
+        ];
+        for (what, ok) in order {
+            if !ok {
+                bad.push(format!("{at}: not {what}"));
+            }
+        }
+        if r.host_overhead_ns != r.total_ns.saturating_sub(r.chip_ns) || r.chip_ns > r.total_ns {
+            bad.push(format!(
+                "{at}: host_overhead {} for total {} chip {}",
+                r.host_overhead_ns, r.total_ns, r.chip_ns
+            ));
+        }
+        if r.prompt_rows == 0 && r.steps == 1 && (r.submits == 0 || r.submits > r.rows) {
+            bad.push(format!("{at}: {} submits for {} rows", r.submits, r.rows));
+        }
+        if i > 0 {
+            let p = &records[i - 1];
+            if r.t0 < p.t1 {
+                bad.push(format!("{at}: starts {} before record {} ends", p.t1 - r.t0, i - 1));
+            }
+            if r.beat == p.beat + 1 && r.t0 != p.t1 {
+                bad.push(format!("{at}: beat follows beat {} with a gap", p.beat));
+            }
+        }
+    }
+    bad
+}
+
+/// The per-token receipt's Wolfram-ready summary: per-beat integer lists, then the queries. A
+/// beat yields one token to each of its `rows` conversations, so a beat's host overhead is each
+/// of those tokens' host time. The DRA-66 gate reads the clean one-conversation beats (`rows` 1,
+/// `prompt_rows` 0).
+pub fn summary_tokens(records: &[TokenRecord]) -> String {
+    type Col = fn(&TokenRecord) -> u64;
+    let cols: [(&str, Col); 11] = [
+        ("rows", |r| r.rows),
+        ("prompt_rows", |r| r.prompt_rows),
+        ("steps", |r| r.steps),
+        ("submits", |r| r.submits),
+        ("total_ns", |r| r.total_ns),
+        ("step_ns", |r| r.step_ns),
+        ("graph_ns", |r| r.graph_ns),
+        ("record_ns", |r| r.record_ns),
+        ("step_chip_ns", |r| r.step_chip_ns),
+        ("chip_ns", |r| r.chip_ns),
+        ("host_overhead_ns", |r| r.host_overhead_ns),
+    ];
+    let mut s = format!(
+        "(* {TOKEN_SCHEMA}: {} decoding beats; integer ns, host clock *)\nreceipt = <|\n",
+        records.len()
+    );
+    for (i, (k, f)) in cols.iter().enumerate() {
+        let vals: Vec<String> = records.iter().map(|r| f(r).to_string()).collect();
+        let comma = if i + 1 < cols.len() { "," } else { "" };
+        s.push_str(&format!("  \"{k}\" -> {{{}}}{comma}\n", vals.join(", ")));
+    }
+    s.push_str("|>;\n");
+    s.push_str("clean[k_] := Pick[Range[Length[receipt[\"rows\"]]], MapThread[#1 == k && #2 == 0 &, {receipt[\"rows\"], receipt[\"prompt_rows\"]}]];\n");
+    s.push_str("(* DRA-66 gate, ms per token at 1 conversation, and the verdict: *) {Length[clean[1]], N[Median[receipt[\"host_overhead_ns\"][[clean[1]]]] / 10^6], Median[receipt[\"host_overhead_ns\"][[clean[1]]]] <= 500000}\n");
+    s.push_str("(* per conversations k, clean beats: {beats, median total, chip, host overhead ms} *) Table[{k, Length[clean[k]], N[Median[receipt[\"total_ns\"][[clean[k]]]] / 10^6], N[Median[receipt[\"chip_ns\"][[clean[k]]]] / 10^6], N[Median[receipt[\"host_overhead_ns\"][[clean[k]]]] / 10^6]}, {k, Select[Union[receipt[\"rows\"]], Length[clean[#]] > 0 &]}]\n");
+    s.push_str("(* host overhead at 1 conversation by where it sits (ms, medians): outside the step, step outside the graph, graph outside record and chip, record *) With[{c = clean[1], r = receipt}, N[{Median[(r[\"total_ns\"] - r[\"step_ns\"])[[c]]], Median[(r[\"step_ns\"] - r[\"graph_ns\"])[[c]]], Median[(r[\"graph_ns\"] - r[\"record_ns\"] - r[\"step_chip_ns\"])[[c]]], Median[r[\"record_ns\"][[c]]]} / 10^6]]\n");
+    s
+}
+
+fn run_check_tokens(path: &str, drop: Option<&str>, text: &str) -> u8 {
+    let usage = "token receipt: --drop REC:record:0 (REC below the last record)";
+    let mut records: Vec<TokenRecord> = match read_jsonl_as(text) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("{path}: {e}");
+            return 2;
+        }
+    };
+    if let Some(d) = drop {
+        let rec = match d.split(':').collect::<Vec<_>>().as_slice() {
+            [r, "record", _] => r.parse::<usize>().ok().filter(|&r| r + 1 < records.len()),
+            _ => None,
+        };
+        let Some(r) = rec else {
+            eprintln!("--drop {d}: {usage}");
+            return 2;
+        };
+        records.remove(r);
+        eprintln!("negative control: dropped {d}");
+    }
+    let bad = check_tokens(&records);
+    if bad.is_empty() {
+        eprintln!("token receipt GREEN: {} records, {path}", records.len());
+        print!("{}", summary_tokens(&records));
+        0
+    } else {
+        for b in bad.iter().take(20) {
+            eprintln!("RED: {b}");
+        }
+        eprintln!("token receipt RED: {} findings over {} records, {path}", bad.len(), records.len());
+        1
+    }
+}
+
 /// `aien-serve-http --check-decode-timeline FILE [--drop REC:host|dev:IDX]`: [`check`] and, when
 /// green, [`summary`] on stdout. `--drop` deletes one span (or, as `REC:record:0`, the whole
-/// record) before checking: the negative control, which must come out red. Exit 0 green,
-/// 1 red, 2 usage or an unreadable file.
+/// record) before checking: the negative control, which must come out red. A file whose first
+/// record is a [`TOKEN_SCHEMA`] receipt goes to [`check_tokens`] / [`summary_tokens`] (`--drop`
+/// then takes `REC:record:0` only). Exit 0 green, 1 red, 2 usage or an unreadable file.
 pub fn run_check(args: &[String]) -> u8 {
     let usage = "usage: aien-serve-http --check-decode-timeline FILE [--drop REC:host|dev|record:IDX]";
     let (path, drop) = match args {
@@ -479,6 +734,10 @@ pub fn run_check(args: &[String]) -> u8 {
             return 2;
         }
     };
+    let first = text.lines().find(|l| !l.trim().is_empty());
+    if first.is_some_and(|l| l.contains(TOKEN_SCHEMA)) {
+        return run_check_tokens(path, drop, &text);
+    }
     let mut records = match read_jsonl(&text) {
         Ok(r) => r,
         Err(e) => {
@@ -529,6 +788,11 @@ pub fn run_check(args: &[String]) -> u8 {
 
 /// Reads a JSONL timeline.
 pub fn read_jsonl(text: &str) -> Result<Vec<Record>, String> {
+    read_jsonl_as(text)
+}
+
+/// Reads JSONL records of any one type.
+pub fn read_jsonl_as<T: serde::de::DeserializeOwned>(text: &str) -> Result<Vec<T>, String> {
     text.lines()
         .enumerate()
         .filter(|(_, l)| !l.trim().is_empty())
@@ -571,9 +835,11 @@ mod tests {
     fn records(n: usize) -> Vec<Record> {
         let mut rec = Recorder {
             path: PathBuf::from("/dev/null"),
+            kind: Kind::Launch,
             out: None,
             marks: [0; 3],
             pending: None,
+            pending_beat: None,
             written: 0,
             failed: 0,
             reported: (0, 0),

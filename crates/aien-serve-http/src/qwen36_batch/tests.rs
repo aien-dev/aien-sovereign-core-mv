@@ -1023,7 +1023,7 @@ fn decode_timeline_records_every_single_row_beat() {
         Duration::from_secs(5),
         1,
         true,
-        Some(path.clone()),
+        Some((path.clone(), Kind::Launch)),
     )
     .unwrap();
     let prompt: Vec<u32> = (0..5).map(|k| (k * 13 + 1) % VOCAB as u32).collect();
@@ -1081,10 +1081,191 @@ fn decode_timeline_refused_without_stamps() {
         Duration::from_secs(5),
         1,
         true,
-        Some(path.clone()),
+        Some((path.clone(), Kind::Launch)),
     );
     assert!(r.is_err());
     assert!(!path.exists());
+}
+
+/// A [`Fake`] that times every step as a graph would report it (list build, then the step as
+/// "chip"), and with `flat` scales the logits into [0, 2] so a sampled draw has real choices.
+struct ChipFake {
+    inner: Fake,
+    flat: bool,
+}
+
+impl RowStep for ChipFake {
+    type Snap = (u64, usize);
+    fn row_snapshot(&mut self, r: usize, snap: &mut (u64, usize)) -> Result<(), String> {
+        self.inner.row_snapshot(r, snap)
+    }
+    fn row_restore(&mut self, r: usize, snap: &(u64, usize)) -> Result<(), String> {
+        self.inner.row_restore(r, snap)
+    }
+    fn row_count(&self) -> usize {
+        self.inner.row_count()
+    }
+    fn row_reset(&mut self, r: usize) -> Result<(), String> {
+        self.inner.row_reset(r)
+    }
+    fn step_rows(&mut self, feed: &[RowFeed]) -> Result<Vec<RowOut>, String> {
+        let t0 = Instant::now();
+        std::thread::sleep(Duration::from_micros(40)); // the list build
+        let record_ns = t0.elapsed().as_nanos() as u64;
+        let c0 = Instant::now();
+        let mut outs = self.inner.step_rows(feed)?;
+        let chip_ns = c0.elapsed().as_nanos() as u64;
+        outs[0].stats = GraphStats {
+            launches: STAMP_KINDS.len() as u32,
+            submits: 1,
+            chip_ns,
+            record_ns,
+            total_ns: t0.elapsed().as_nanos() as u64,
+            ..Default::default()
+        };
+        if self.flat {
+            for l in outs.iter_mut().filter_map(|o| o.logits.as_mut()) {
+                l.iter_mut().for_each(|x| *x /= 500_000.0);
+            }
+        }
+        Ok(outs)
+    }
+}
+
+fn chip_door(rows: usize, flat: bool, receipt: Option<&Path>) -> Qwen36BatchDoor {
+    let (inner, _) = Fake::new(rows, None);
+    Qwen36BatchDoor::with_stepper_timeline(
+        ChipFake { inner, flat },
+        4096,
+        lock_file(),
+        Duration::from_secs(5),
+        1,
+        true,
+        receipt.map(|p| (p.to_path_buf(), Kind::Token)),
+    )
+    .unwrap()
+}
+
+/// The receipt's lines once the door has gone idle (the count stops changing).
+fn settled_lines(path: &Path) -> String {
+    let mut last = String::new();
+    for _ in 0..100 {
+        std::thread::sleep(Duration::from_millis(30));
+        let t = std::fs::read_to_string(path).unwrap_or_default();
+        if !t.is_empty() && t == last {
+            return t;
+        }
+        last = t;
+    }
+    last
+}
+
+/// DRA-66: the per-token receipt at 1 and then 8 conversations: the words are each request's
+/// alone, every decoding beat is one green record, both 1-row and 8-row clean beats appear, the
+/// replies' host overhead is total minus chip, and dropping a record turns the checker (library
+/// and CLI) red.
+#[test]
+fn token_receipt_at_one_and_eight_conversations() {
+    let path = lock_file().with_extension("tokens.jsonl");
+    let d = Arc::new(chip_door(8, false, Some(&path)));
+    let solo: Vec<u32> = (0..5).map(|k| (k * 13 + 1) % VOCAB as u32).collect();
+    let (words, o) = run(&d, &solo, &greedy(20));
+    assert_eq!(words, alone(&solo, 20));
+    assert!(o.chip_ns > 0 && o.chip_ns <= o.total_ns, "{o:?}");
+    assert_eq!(o.host_overhead_ns, o.total_ns - o.chip_ns);
+    let one = settled_lines(&path);
+    let hs: Vec<_> = (0..8u32)
+        .map(|i| {
+            let d = Arc::clone(&d);
+            let p: Vec<u32> = (0..5).map(|k| (k * 7 + i * 19 + 2) % VOCAB as u32).collect();
+            std::thread::spawn(move || (run(&d, &p, &greedy(30)).0, p))
+        })
+        .collect();
+    for h in hs {
+        let (w, p) = h.join().unwrap();
+        assert_eq!(w, alone(&p, 30));
+    }
+    let text = settled_lines(&path);
+    let recs: Vec<crate::decode_timeline::TokenRecord> =
+        crate::decode_timeline::read_jsonl_as(&text).unwrap();
+    // 20 tokens alone: the first from the prompt's last step, then 19 decoding beats.
+    assert_eq!(one.lines().count(), 19, "{one}");
+    assert_eq!(crate::decode_timeline::check_tokens(&recs), Vec::<String>::new());
+    let clean = |k: u64| recs.iter().filter(|r| r.rows == k && r.prompt_rows == 0).count();
+    // The solo reply's 19 beats come first, each one clean row.
+    assert!(recs[..19].iter().all(|r| r.rows == 1 && r.prompt_rows == 0), "{text}");
+    assert!(clean(8) >= 10, "{text}");
+    assert!(recs.iter().all(|r| r.chip_ns > 0 && r.host_overhead_ns < r.total_ns));
+    let mut no_rec = recs.clone();
+    no_rec.remove(5);
+    assert!(!crate::decode_timeline::check_tokens(&no_rec).is_empty());
+    let mut bent = recs.clone();
+    bent[2].chip_ns += 1;
+    assert!(!crate::decode_timeline::check_tokens(&bent).is_empty());
+    let s = crate::decode_timeline::summary_tokens(&recs);
+    assert!(s.contains("\"host_overhead_ns\" -> {"), "{s}");
+    let p = path.to_string_lossy().into_owned();
+    let drop = |d: &str| crate::decode_timeline::run_check(&[p.clone(), "--drop".into(), d.into()]);
+    assert_eq!(drop("0:record:0"), 1, "the negative control must go red");
+    assert_eq!(crate::decode_timeline::run_check(&[p.clone()]), 0);
+    // `AIEN_Q36_TOKEN_RECEIPT_KEEP=<file>`: keep this host run for the checker CLI.
+    if let Some(keep) = std::env::var_os("AIEN_Q36_TOKEN_RECEIPT_KEEP") {
+        std::fs::copy(&path, keep).unwrap();
+    }
+    let _ = std::fs::remove_file(&path);
+}
+
+fn sampled(seed: u64, n: usize) -> GenerateParams {
+    GenerateParams {
+        temperature: 0.7,
+        seed,
+        ..greedy(n)
+    }
+}
+
+/// The door's words for `seed` at T=0.7, alone and beside seven other seeded requests.
+fn seeded_words(params: impl Fn(u64) -> GenerateParams) -> (Vec<Vec<u32>>, Vec<u32>) {
+    let prompt = [5u32, 9, 2, 6, 5];
+    let alone: Vec<Vec<u32>> = [1u64, 2, 3, 1]
+        .iter()
+        .map(|&s| run(&chip_door(1, true, None), &prompt, &params(s)).0)
+        .collect();
+    let d = Arc::new(chip_door(8, true, None));
+    let hs: Vec<_> = (1..=8u64)
+        .map(|s| {
+            let (d, p) = (Arc::clone(&d), params(s));
+            std::thread::spawn(move || run(&d, &prompt, &p).0)
+        })
+        .collect();
+    let beside = hs.into_iter().map(|h| h.join().unwrap()).collect::<Vec<_>>();
+    (alone, beside[0].clone())
+}
+
+/// What the honest door must show at T=0.7: three seeds give three different replies, a seed
+/// repeats its reply, and seed 1 beside seven other requests says what it says alone.
+fn seeds_hold(alone: &[Vec<u32>], beside: &[u32]) -> bool {
+    let spread = alone[0] != alone[1] && alone[1] != alone[2] && alone[0] != alone[2];
+    spread && alone[0] == alone[3] && alone[0] == beside
+}
+
+/// DRA-66 seed regression at T=0.7 through the batch door. The negative controls run first:
+/// the two sampling mutants' effects (`ignore-seed`: every request on seed 0; `force-greedy`:
+/// argmax at any temperature) applied to the requests must turn the check red, then the honest
+/// run must be green. The process mutant is installed as the server does, so a debug-build run
+/// with `AIEN_SAMPLING_MUTANT=ignore-seed` or `force-greedy` turns the honest leg itself red.
+#[test]
+fn seeds_spread_at_t07_through_the_batch_door() {
+    crate::sampling::install_mutant_from_env().unwrap();
+    let ignore_seed = seeded_words(|_| sampled(0, 24));
+    assert!(!seeds_hold(&ignore_seed.0, &ignore_seed.1), "ignore-seed must be red");
+    let force_greedy = seeded_words(|s| GenerateParams {
+        temperature: 0.0,
+        ..sampled(s, 24)
+    });
+    assert!(!seeds_hold(&force_greedy.0, &force_greedy.1), "force-greedy must be red");
+    let honest = seeded_words(|s| sampled(s, 24));
+    assert!(seeds_hold(&honest.0, &honest.1), "{honest:?}");
+    assert!(honest.0.iter().all(|w| w.len() == 24));
 }
 
 /// A stepper that never returns logits, even when a feed asks for them.
