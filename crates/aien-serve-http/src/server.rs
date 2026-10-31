@@ -47,6 +47,19 @@ use crate::openai::{
 use crate::sampling::SamplingRecord;
 use crate::text::{Push, TextAssembler};
 
+/// How long a client has to send a complete request head (request line and headers) once the
+/// server starts waiting for one: on a new connection and on a kept-alive connection between
+/// requests. A client that sends part of a head, or nothing, is disconnected when it runs out, so a
+/// slow client cannot hold a connection open indefinitely (DRA-47). 30 s is hyper's own default for
+/// this bound, which `axum::serve` never armed because it gives hyper no timer; a loopback client
+/// sends its head in well under a millisecond.
+pub const HEADER_READ_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// The most connections served at once. Past it the server accepts no new connection until one
+/// closes (the kernel's listen backlog queues the rest), so connections cannot exhaust the
+/// process's file descriptors. Generations are bounded separately by [`Engine::concurrency`].
+pub const MAX_CONNECTIONS: usize = 256;
+
 #[derive(Clone)]
 pub struct ServerConfig {
     /// Must be a loopback address; `serve` refuses anything else.
@@ -73,6 +86,10 @@ pub struct ServerConfig {
     pub readers: Option<crate::readers::ReadersConfig>,
     /// Secret supplied out of band; an absent or empty credential refuses startup.
     pub bearer_token: String,
+    /// See [`HEADER_READ_TIMEOUT`].
+    pub header_read_timeout: Duration,
+    /// See [`MAX_CONNECTIONS`].
+    pub max_connections: usize,
 }
 
 impl Default for ServerConfig {
@@ -93,6 +110,8 @@ impl Default for ServerConfig {
             default_enable_thinking: None,
             readers: None,
             bearer_token: String::new(),
+            header_read_timeout: HEADER_READ_TIMEOUT,
+            max_connections: MAX_CONNECTIONS,
         }
     }
 }
@@ -318,6 +337,8 @@ pub async fn serve_until(
     let listener = tokio::net::TcpListener::bind(SocketAddr::new(cfg.bind, cfg.port)).await?;
     let addr = listener.local_addr()?;
     let gate = Arc::new(Semaphore::new(engine.concurrency().max(1)));
+    let header_read_timeout = cfg.header_read_timeout;
+    let slots = Arc::new(Semaphore::new(cfg.max_connections.max(1)));
     let state = Arc::new(AppState {
         engine,
         codec,
@@ -332,15 +353,76 @@ pub async fn serve_until(
         counter: AtomicU64::new(0),
     });
     let app = router(state);
-    let handle = tokio::spawn(async move {
-        if let Err(e) = axum::serve(listener, app)
-            .with_graceful_shutdown(shutdown)
-            .await
-        {
-            eprintln!("aien-serve-http: server stopped: {e}");
-        }
-    });
+    let handle = tokio::spawn(serve_connections(
+        listener,
+        app,
+        header_read_timeout,
+        slots,
+        shutdown,
+    ));
     Ok((addr, handle))
+}
+
+/// The accept loop: HTTP/1 on each connection with the head bounded by `header_read_timeout`, at
+/// most `slots` connections at once. When `shutdown` resolves no new connection is accepted, idle
+/// connections close, requests in flight run to their end, and the loop returns once every
+/// connection is gone.
+async fn serve_connections(
+    listener: tokio::net::TcpListener,
+    app: Router,
+    header_read_timeout: Duration,
+    slots: Arc<Semaphore>,
+    shutdown: impl std::future::Future<Output = ()> + Send + 'static,
+) {
+    let (stop_tx, stop_rx) = tokio::sync::watch::channel(());
+    let mut connections = tokio::task::JoinSet::new();
+    tokio::pin!(shutdown);
+    loop {
+        let slot = tokio::select! {
+            _ = &mut shutdown => break,
+            slot = Arc::clone(&slots).acquire_owned() => slot.expect("the slots are never closed"),
+        };
+        let stream = tokio::select! {
+            _ = &mut shutdown => break,
+            accepted = listener.accept() => match accepted {
+                Ok((stream, _)) => stream,
+                Err(e) if matches!(
+                    e.kind(),
+                    std::io::ErrorKind::ConnectionRefused
+                        | std::io::ErrorKind::ConnectionAborted
+                        | std::io::ErrorKind::ConnectionReset
+                ) => continue,
+                Err(e) => {
+                    // Out of file descriptors and the like: wait for some to be released.
+                    eprintln!("aien-serve-http: accept failed: {e}");
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                    continue;
+                }
+            },
+        };
+        let app = app.clone();
+        let mut stop = stop_rx.clone();
+        connections.spawn(async move {
+            let _slot = slot;
+            let mut http = hyper::server::conn::http1::Builder::new();
+            http.timer(hyper_util::rt::TokioTimer::new())
+                .header_read_timeout(header_read_timeout);
+            let conn = http.serve_connection(
+                hyper_util::rt::TokioIo::new(stream),
+                hyper_util::service::TowerToHyperService::new(app),
+            );
+            tokio::pin!(conn);
+            tokio::select! {
+                _ = conn.as_mut() => return,
+                _ = stop.changed() => conn.as_mut().graceful_shutdown(),
+            }
+            let _ = conn.await;
+        });
+        while connections.try_join_next().is_some() {}
+    }
+    drop(listener);
+    let _ = stop_tx.send(());
+    while connections.join_next().await.is_some() {}
 }
 
 fn model_card(state: &AppState) -> ModelCard {
