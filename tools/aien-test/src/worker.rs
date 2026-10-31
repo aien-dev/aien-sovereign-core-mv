@@ -1790,7 +1790,26 @@ const OPEN_PULLS_PER_PAGE: usize = 100;
 /// instead of silently dropping the rest.
 const OPEN_PULLS_PAGE_CAP: usize = 20;
 
+/// Whether a next-page path taken from `Link` is another page of a pull list on api.github.com.
+/// GitHub writes it as `repositories/<id>/pulls?...` (seen on 2026-10-31) and may write
+/// `repos/<owner>/<repo>/pulls?...`. An absolute URL to another host keeps its scheme after
+/// [`github_api_path`] and never matches.
+fn is_pulls_page(next: &str, or: &str) -> bool {
+    let repos = format!("repos/{or}/pulls?");
+    if next
+        .get(..repos.len())
+        .is_some_and(|p| p.eq_ignore_ascii_case(&repos))
+    {
+        return true;
+    }
+    next.strip_prefix("repositories/")
+        .and_then(|rest| rest.split_once("/pulls?"))
+        .is_some_and(|(id, _)| !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit()))
+}
+
 /// Every open PR head, following `Link: rel="next"` until the last page.
+/// A next link that is not another page of a pull list ([`is_pulls_page`]) is an error:
+/// `gh api` follows an absolute URL to any host, so the walk never hands it one.
 fn open_pull_heads(gh: &str, or: &str, cache: &mut GithubHeadCache) -> Result<Vec<String>, String> {
     let mut path = format!("repos/{or}/pulls?state=open&per_page={OPEN_PULLS_PER_PAGE}");
     let mut out = Vec::new();
@@ -1800,6 +1819,11 @@ fn open_pull_heads(gh: &str, or: &str, cache: &mut GithubHeadCache) -> Result<Ve
         let Some(next) = next.filter(|n| n != &path) else {
             return Ok(out);
         };
+        if !is_pulls_page(&next, or) {
+            return Err(format!(
+                "open pull list for {or}: next page link {next:?} is not a page of a pull list"
+            ));
+        }
         path = next;
     }
     Err(format!(
@@ -2342,6 +2366,84 @@ printf 'HTTP/2.0 200 OK\r\nEtag: %s\r\n%sContent-Type: application/json\r\n\r\n'
         assert!(
             err.contains("404"),
             "a failed later page is an error, not a short list: {err}"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn only_pull_list_pages_count_as_next_pages() {
+        let or = "aien-dev/demo";
+        assert!(is_pulls_page("repositories/42/pulls?page=2", or));
+        assert!(is_pulls_page("repos/aien-dev/demo/pulls?page=2", or));
+        assert!(is_pulls_page("repos/Aien-Dev/Demo/pulls?page=2", or));
+        assert!(!is_pulls_page(
+            "https://evil.invalid/repositories/42/pulls?page=2",
+            or
+        ));
+        assert!(!is_pulls_page("repositories/42/issues?page=2", or));
+        assert!(!is_pulls_page("repositories//pulls?page=2", or));
+        assert!(!is_pulls_page("repositories/4x2/pulls?page=2", or));
+        assert!(!is_pulls_page("repos/aien-dev/other/pulls?page=2", or));
+        assert!(!is_pulls_page("user/repos?page=2", or));
+    }
+
+    /// GitHub's real `Link` names later pages `repositories/<id>/pulls?...` (seen on
+    /// aien-sovereign-core-mv, 2026-10-31), not the `repos/<owner>/<repo>` path the walk started
+    /// from; that page is followed. A next link to another host is refused before `gh` is asked
+    /// for it (negative control).
+    #[test]
+    fn next_links_in_the_repositories_id_form_are_followed_and_other_hosts_are_refused() {
+        let dir = std::env::temp_dir().join(format!("sc732-repoid-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let gh = fake_gh(&dir);
+        let gh = gh.to_str().unwrap();
+        let (p1, p2, m1) = ("d".repeat(40), "e".repeat(40), "f".repeat(40));
+        let page1 = format!("repos/aien-dev/byid/pulls?state=open&per_page={OPEN_PULLS_PER_PAGE}");
+        let page2 = format!(
+            "repositories/1375978313/pulls?state=open&per_page={OPEN_PULLS_PER_PAGE}&page=2"
+        );
+        let main = "repos/aien-dev/byid/commits/main";
+        fake_answer(
+            &dir,
+            &page1,
+            "W/\"i1\"",
+            &format!(r#"[{{"head":{{"sha":"{p1}"}}}}]"#),
+        );
+        fake_link(
+            &dir,
+            &page1,
+            &format!(
+                "<https://api.github.com/{page2}>; rel=\"next\", <https://api.github.com/{page2}>; rel=\"last\""
+            ),
+        );
+        fake_answer(
+            &dir,
+            &page2,
+            "W/\"i2\"",
+            &format!(r#"[{{"head":{{"sha":"{p2}"}}}}]"#),
+        );
+        fake_answer(&dir, main, "\"mi\"", &format!(r#"{{"sha":"{m1}"}}"#));
+        let mut cache = GithubHeadCache::default();
+        let heads = github_heads_cached(gh, "github.com/aien-dev/byid", &mut cache).unwrap();
+        assert_eq!(heads, vec![p1.clone(), p2, m1]);
+
+        fake_answer(
+            &dir,
+            &page1,
+            "W/\"i1b\"",
+            &format!(r#"[{{"head":{{"sha":"{p1}"}}}}]"#),
+        );
+        fake_link(
+            &dir,
+            &page1,
+            "<https://evil.invalid/repositories/1375978313/pulls?page=2>; rel=\"next\"",
+        );
+        let err = github_heads_cached(gh, "github.com/aien-dev/byid", &mut cache).unwrap_err();
+        assert!(err.contains("not a page of a pull list"), "{err}");
+        let log = fs::read_to_string(dir.join("log")).unwrap();
+        assert!(
+            !log.contains("evil.invalid"),
+            "the foreign link is never handed to gh: {log}"
         );
         let _ = fs::remove_dir_all(&dir);
     }
