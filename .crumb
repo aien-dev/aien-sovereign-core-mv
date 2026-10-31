@@ -83,7 +83,7 @@
         },
         {
           "digest": "a2ac5edc339c6011aafd47acc096584165fa05af1c164d464c77d928add1ecc4",
-          "last_commit": "53beb962",
+          "last_commit": "966d09f2",
           "name": "crates/aien-cli",
           "purpose": ""
         },
@@ -107,7 +107,7 @@
         },
         {
           "digest": "49542dda2e2f6096e758580ae070ae2f952e85355d772f7a02ddcc65f7ac01e4",
-          "last_commit": "98811447",
+          "last_commit": "4de61b81",
           "name": "scripts",
           "purpose": ""
         },
@@ -118,21 +118,21 @@
           "purpose": ""
         },
         {
-          "digest": "0aacc9353a76a564e51069e99c6f11fb84b293ecf9686b68fbd72755b7da564e",
+          "digest": "f3c208d8b9bdd9ad5382af5f1fe9bb2ed9c971a831a017d636c13aaf0e7e1b9e",
           "last_commit": "ffa66afd",
           "name": "tools/aien-local-ci",
           "purpose": "Local CI sandbox exec contract (C8), aien-run user/caches install, Forgejo trigger hook, health "
         }
       ],
-      "children_root": "sha256:b4509f512a53f3bfc2bec4b1faec0077982c7293615b12e7052267818ba1385c",
-      "compiled_at": "2026-10-30T22:11:49Z",
+      "children_root": "sha256:2710e6f4ef401767bd8a8502d4a25f07bdbc5348c6fd4f4e65e7182bc9700737",
+      "compiled_at": "2026-10-31T02:08:18Z",
       "compiler": "crumb-compile/1",
-      "digest": "sha256:84c0a72831610be99034f9422c3cf454cf2e87bcff6864fd6c6f25981846c891",
+      "digest": "sha256:5ba6e720f07c6d8c0bd004bac2a3ea1be913b17bd606877457d362b8ab5b9c41",
       "evidence_files": 3602,
       "evidence_root": "sha256:1b8069934a4cc67803874ebd2ad5de32671fae5ccce1a3ea70aeb532fe8ea86b",
       "files": 8115,
-      "generated_at_commit": "021f906a82a74ecf065a3736c79dcd1672902ecf",
-      "source_tree": "sha256:c209b5ee0e3e17dd7025cdc2c603ee926e5efbc4e9ecf4b0be4d34f5eaf2e747"
+      "generated_at_commit": "4de61b8167972f28376ca230cb29b1c6976d375e",
+      "source_tree": "sha256:93166e0b7ead5502c2c1ee4793885b45bb806fa346952de8a24bbb292a04a6ff"
     }
   },
   "history": [],
