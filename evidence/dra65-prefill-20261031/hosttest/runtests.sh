@@ -58,3 +58,23 @@ t "T9 TERM the flock holder mid-step (slow door)"; win 20 60
 MOCK_M=slow bash "$S" run "$B" "$T/o9" 1 > /dev/null 2>&1 & sleep 6
 fl=$(pgrep -x flock | while read -r p; do grep -q "o9" "/proc/$p/cmdline" && echo "$p"; done); echo "flock=$fl"; kill -TERM "$fl"; sleep 25
 sleep 2; lockfree; echo "leftover=$(left)"; cat "$T/o9/watch.log"; wait
+
+t "T10 lock held elsewhere (8 s): DRA65_LOCK_WAIT unset, then 3 s; then 10 s with a holder leaving at 3 s"; win 20 60
+flock "$DRA65_TEST_LOCK" sleep 8 & hp=$!; sleep 0.5
+bash "$S" run "$B" "$T/o10" 1 2>&1 >/dev/null | tail -n 1; echo "rc=${PIPESTATUS[0]}"
+s0=$(date +%s); DRA65_LOCK_WAIT=3 bash "$S" run "$B" "$T/o10" 1 2>&1 >/dev/null | tail -n 1; echo "rc=${PIPESTATUS[0]} after $(( $(date +%s) - s0 )) s"
+wait $hp; flock "$DRA65_TEST_LOCK" sleep 3 & hp=$!; sleep 0.5
+s0=$(date +%s); DRA65_LOCK_WAIT=10 bash "$S" run "$B" "$T/o10" 1 > /dev/null 2>&1; echo "rc=$? after $(( $(date +%s) - s0 )) s"; sr "$T/o10/1"; wait $hp
+
+t "T11 TERM the script itself mid-step (the queue runner's cap; slow door)"; win 20 60
+MOCK_M=slow bash "$S" run "$B" "$T/o11" 1 > /dev/null 2>&1 & op=$!; sleep 6
+sp=$(cat $T/o11/.server.*.pid 2>/dev/null); echo "server=$sp"; s0=$(date +%s); kill -TERM $op; wait $op; echo "rc=$? after $(( $(date +%s) - s0 )) s"
+sleep 2; echo "server alive: $(kill -0 -- "-$sp" 2>/dev/null && echo yes || echo no)"; lockfree; echo "leftover=$(left)"; cat "$T/o11/watch.log"
+
+t "T12 DRA65_CAP_S=40 under a 20-min lease (slow door), step 4"; win 20 60
+s0=$(date +%s); DRA65_CAP_S=40 MOCK_M=slow bash "$S" run "$B" "$T/o1" 4 > /dev/null 2>&1; echo "rc=$? after $(( $(date +%s) - s0 )) s"
+sr "$T/o1/4"; sleep 2; lockfree; echo "leftover=$(left)"
+
+t "T13 window holding the chip lock (gb10 exclusive): refused before any wait"; win 20 60; echo exclusive > "$T/win/gb10"
+s0=$(date +%s); DRA65_LOCK_WAIT=60 bash "$S" run "$B" "$T/o13" 1 2>&1 >/dev/null | tail -n 1; echo "rc=${PIPESTATUS[0]} after $(( $(date +%s) - s0 )) s"
+rm -f "$T/win/gb10"; ls "$T/o13" 2>/dev/null | wc -l

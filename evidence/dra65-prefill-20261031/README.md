@@ -94,8 +94,13 @@ Green probe without `DRA65_SERVER_LOG`: turn 2 NO_SNAP, FAIL rc 1; door that nev
 Lease 45 s with a 30 s/request door: step INCONCLUSIVE rc 2 at 46 s ("probe stopped at the lease deadline"),
 `lease_expired: true`, lock free. `expired` created mid-step: INCONCLUSIVE rc 2. SIGKILL of the run shell
 mid-step: the watchdog TERMed the server group, server gone, lock free. TERM of the flock(1) holder: the
-watchdog stopped the server group and the run shell, lock free. Not host-testable: the real server, the
-nvidia-smi/model/18091 checks and the chip.
+watchdog stopped the server group and the run shell, lock free. Queue-slice additions (T10-T13, log of the full
+run `/tmp/dra65mock/runtests-slices.log`): lock held 8 s elsewhere: no wait NOT_RUN rc 3 at once,
+`DRA65_LOCK_WAIT=3` NOT_RUN rc 3 after 3 s, `DRA65_LOCK_WAIT=10` with a holder leaving after 3 s: rc 0, step 1
+PASS. TERM of the script itself mid-step (the runner's cap): rc 143 at once, the watchdog TERMed the server group
+and the run shell, server gone, lock free, nothing left. `DRA65_CAP_S=40` under a 20-min lease: INCONCLUSIVE rc 2
+after 41 s, `lease_expired: true`. `$SPARK_WINDOW_DIR/gb10` = exclusive with `DRA65_LOCK_WAIT=60`: NOT_RUN rc 3
+after 0 s, no OUT written. Not host-testable: the real server, the nvidia-smi/model/18091 checks and the chip.
 
 Mutant 4 wiring (source, omega 474197e4f): `AIEN_Q36_TEST_MUTANT=4` -> `moe.rs` `graph_mutant()` ->
 `test_set_mutant` on the main graph and (`rows.rs` wire) every row and stroke graph; in C mutant 4 swaps K_CN for
@@ -108,24 +113,34 @@ never reads it, and with `AIEN_Q36_PREFILL_CHUNK=0` the single door runs no chip
 
 ## Window (Main; chip gates NOT_RUN until then)
 
-Main opens a quiet exclusive window without the chip lock (marker, `spark-window open ... --gb10 none --quiet
-exclusive --lease 20`), stops 18091 and Flint, and runs one lease's steps:
-`spark-window run bash evidence/dra65-prefill-20261031/window-dra65.sh run BIN OUT STEP ...`, BIN = the server
-binary built from this branch, OUT = one receipt root for every lease (step N writes `OUT/N/`). The 35B server's
+The single chip queue runs it: `~/handoffs/pdra4-hive/chip/DRA-65/s01-golden.sh` (steps 1 2 3 4 5),
+`s02-time-single.sh` (6a 6b), `s03-time-batch.sh` (6c 6d), library `dra65-lib.sh`, budgets in `PLAN.md`. Each
+slice carries the header `# pdra4-gb10: none`, so `chip/run-queue.sh` opens `spark-window open ... --gb10 none
+--quiet exclusive --lease 20` after its preflight (18091 and Flint down) and the slice runs
+`window-dra65.sh run BIN OUT STEP ...` from a pinned worktree of this branch, BIN = the server
+binary built from this branch (`~/handoffs/pdra4-hive/bin/DRA-65/`), OUT = the slice's receipt directory
+(`receipts/DRA-65/<slice>/`, step N writes `OUT/N/`), and writes one `VERDICT` line from the script's exit code
+and step receipts (0 PASS, 1 FAIL, 2 INCONCLUSIVE, 3 NOT_RUN, any other INCONCLUSIVE). s02 and s03 are NOT_RUN
+unless s01 PASSed with the same binary sha256. The 35B server's
 chip reservation (`crates/aien-serve-http/src/chip_reservation.rs` L88-95) accepts `/tmp/aien-gb10.lock` only
-when one of its ancestors holds it, and spark-window's holder never is; so the script takes `flock -n -o` on the
+when one of its ancestors holds it, and spark-window's holder never is; so the script takes `flock -o` on the
 lock itself (flock(1) holds it and runs the script as its child; `-o` closes the fd before the exec, so no
 descendant inherits the lock), checks in `/proc/locks` that the exclusive holder is its ancestor, and starts each
 server as its own child, in its own session (`setsid`, pid file `OUT/.server.<run pid>.pid`), with
 `AIEN_GB10_LOCK_HELD=1` and the affinity reset of the live start scripts (`taskset -c` over every online CPU, so a
 core5/nice19 parent does not pin the 35B to one core; `nice` is inherited and cannot be lowered: do not start
-`run` under `nice`). Exit 3 (NOT_RUN, chip untouched): no `SPARK_WINDOW`; the lock held by anyone else; a listener
+`run` under `nice`). The slices wait for the lock at most `DRA65_LOCK_WAIT=90` s (default 0: no wait); a
+TERM/INT/HUP to the script (the runner's 1140 s cap) ends flock(1), so the lock is released and the watchdog stops
+the server group and the run. Exit 3 (NOT_RUN, chip untouched): no `SPARK_WINDOW`; a window that holds the chip
+lock itself (`$SPARK_WINDOW_DIR/gb10` exclusive or shared: the server would refuse, so no wait either); the lock
+held by anyone else after the wait; a listener
 on 18091, 18300, 18310 or the test port 18192; a compute app on the chip; BIN or the model missing; a green step
 (3-5) not preceded by both red steps in the same run and without their passing step receipts in `OUT/1`, `OUT/2`
 (rc 0, same bin_sha256, a lock holder, lease not expired); `$SPARK_WINDOW_DIR/expired` present; or the steps'
 estimates longer than the lease has left.
 
-Lease: deadline = `held` + `lease` x `SPARK_LEASE_UNIT_S` (default 60). The server wait (at most 300 s), each probe
+Lease: deadline = `held` + `lease` x `SPARK_LEASE_UNIT_S` (default 60), or `held` + `DRA65_CAP_S` when sooner (the
+slices: 1060 s, so deadline + 20 s server stop + 40 s run-shell grace = 1120 s < the runner's 1140 s). The server wait (at most 300 s), each probe
 (`timeout` to the deadline) and every request (`curl -m` = min(1800 s, time left); none sent when no time is
 left) are bounded by it. A watchdog in its own session stops the server's process group (TERM, KILL after 20 s)
 and then the run shell at the deadline, or as soon as the run shell or the flock(1) holder dies (SIGKILL included);
@@ -148,8 +163,10 @@ golden chunked `dec*(756 + 49 + 876) + 365/250. + 2486/250. + 8210/196.8` = 86.9
 golden all-stepped (step 3) `dec*(756 + 365 + 2486 + 8210 + 49 + 876)` = 256.1 s -> 289 s; time chunked
 `3*(512/250. + 8210/196.8) + 6*256*dec` = 162.2 s -> 195 s; time all-stepped `dec*(3*(512 + 8210) + 6*256)` =
 556.8 s -> 590 s (756 = the set's prompt tokens, 876 = its decode tokens 798 + 3*24 + 6; 49 = turn 2 past the
-snapshot; 512 = planning size of long-512). 20-min leases: L1 = `run BIN OUT 1 2 3 4 5`
-(`4*119.91 + 289.11` = 769 s), L2 = `6a 6b` (785 s), L3 = `6c 6d` (390 s).
+snapshot; 512 = planning size of long-512). Queue slices: s01-golden = `run BIN OUT 1 2 3 4 5`
+(`4*119.91 + 289.11` = 769 s), s02-time-single = `6a 6b` (785 s), s03-time-batch = `6c 6d` (390 s); with the
+1060 s cap less a 120 s q36-extra slot wait and a 90 s lock wait, `1060 - 120 - 90` = 850 s is left for steps,
+margins `850 - {769, 785, 390}` = {81, 65, 460} s (WolframLanguageEvaluator, chip/DRA-65/PLAN.md).
 
 | step | door | server env | probe | expect | est_s |
 |---|---|---|---|---|---|

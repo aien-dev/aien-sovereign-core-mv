@@ -1,18 +1,24 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
-# DRA-65 chip window. Main opens `spark-window open ... --gb10 none --quiet exclusive --lease 20`, stops 18091 and
-# Flint, then runs one lease's steps as
+# DRA-65 chip window. The single chip queue (~/handoffs/pdra4-hive/chip/run-queue.sh) runs it through the slices
+# chip/DRA-65/s01-golden.sh (steps 1-5), s02-time-single.sh (6a 6b), s03-time-batch.sh (6c 6d); each carries
+# the header `# pdra4-gb10: none`, so the runner opens `spark-window open ... --gb10 none --quiet exclusive
+# --lease 20` (18091 and Flint stopped by the runner's preflight) and the slice runs
 #   spark-window run bash window-dra65.sh run BIN OUT STEP [STEP ...]
 # BIN = the server binary built from this branch, OUT = a receipt root shared by every lease (step N writes
 # OUT/N/). The server's chip reservation (aien-serve-http chip_reservation.rs) only accepts /tmp/aien-gb10.lock
-# held by one of its ancestors, so this script takes `flock -n -o` on it itself (the lock stays in flock(1), an
+# held by one of its ancestors, so this script takes `flock -o` on it itself (the lock stays in flock(1), an
 # ancestor; no descendant inherits the fd) and starts every server as its child, in its own session
 # (setsid, pid file OUT/.server.<run pid>.pid), with AIEN_GB10_LOCK_HELD=1 and the affinity reset of the live start scripts.
-# Exit 3 = NOT_RUN, chip untouched: no SPARK_WINDOW, the lock held by someone else, a listener on
+# DRA65_LOCK_WAIT=N: wait at most N s for the lock (default 0: no wait). A TERM/INT/HUP to this script ends
+# flock(1): the lock is released and the watchdog stops the server group and the run.
+# Exit 3 = NOT_RUN, chip untouched: no SPARK_WINDOW, a window that holds the chip lock itself
+# (SPARK_WINDOW_DIR/gb10 exclusive|shared), the lock held by someone else, a listener on
 # 18091/18300/18310 or the test port, a compute app on the chip, the binary or model missing, a green step
 # without passing red steps (listed before it, or their step receipts in OUT/1 and OUT/2), or the steps'
 # estimated time longer than the lease has left.
-# Lease: deadline = SPARK_WINDOW_DIR/held + lease * SPARK_LEASE_UNIT_S (default 60). Every server wait and
+# Lease: deadline = SPARK_WINDOW_DIR/held + lease * SPARK_LEASE_UNIT_S (default 60), or held + DRA65_CAP_S when
+# that is sooner (queue slices: 1060, under the runner's 1140 s). Every server wait and
 # probe is bounded by the time left (timeout, curl -m). A watchdog in its own session stops the server group
 # at the deadline (and this script if it has not ended 40 s later), or at once when this script or the lock
 # holder dies; the lock is then released.
@@ -80,7 +86,7 @@ plan)
     step_def $s; printf '%-4s %-7s %-55s %-24s %s\n' $s $DOOR "${ENVS[*]:--}" "$PROBE" $EST
   done
   echo "Steps 1-2 (red) come first; 3-5 need them earlier in the same run or their step receipts in OUT/1 and OUT/2."
-  echo "20-min leases: L1 = run BIN OUT 1 2 3 4 5 (769 s), L2 = 6a 6b (785 s), L3 = 6c 6d (390 s)."
+  echo "Queue slices (chip/DRA-65, cap 1060 s each): s01-golden = 1 2 3 4 5 (769 s), s02-time-single = 6a 6b (785 s), s03-time-batch = 6c 6d (390 s)."
   exit 0 ;;
 _watch) # _watch MAIN HOLDER DEADLINE PIDFILE (own session; started by run)
   M=$2; H=$3; DL=$4; PF=$5
@@ -104,11 +110,22 @@ run)
   # DRA65_TEST_LOCK (host check only): another lock file; the binary must be a script (a mock door, never the
   # ELF server), the chip and live-port checks are skipped and board lines go to OUT/board.log.
   LOCK=${DRA65_TEST_LOCK:-/tmp/aien-gb10.lock}; TEST=${DRA65_TEST_LOCK:+1}
+  # A window that holds the chip lock itself (--gb10 exclusive|shared): its holder is never our ancestor, so the
+  # server would refuse; and we would wait on the lock until the window closes. Refuse before any wait.
+  g=$(cat "${SPARK_WINDOW_DIR:-/nonexistent}/gb10" 2>/dev/null)
+  case $g in exclusive|shared) not_run "window $SPARK_WINDOW holds the chip lock (gb10 $g): open it with --gb10 none (queue slice header '# pdra4-gb10: none')" ;; esac
   if [ "${DRA65_LOCKED:-}" != "$SPARK_WINDOW" ]; then
     # flock(1) holds the lock in its own process (-o: closed before exec, so no descendant inherits it) and
     # runs us as its child: the holder is an ancestor of this shell and of every server it starts.
-    DRA65_LOCKED=$SPARK_WINDOW flock -n -o -E 75 "$LOCK" bash "$SELF" "$@"; rc=$?
-    [ $rc = 75 ] && not_run "$LOCK is held by another process; this script takes it itself (open the window with --gb10 none)"
+    # DRA65_LOCK_WAIT=N (seconds, queue slices): wait at most N s for the lock; unset or 0: do not wait.
+    lw=${DRA65_LOCK_WAIT:-0}; case $lw in ''|*[!0-9]*) die "DRA65_LOCK_WAIT=$lw: whole seconds" ;; esac
+    wflag=(-n); [ "$lw" -gt 0 ] && wflag=(-w "$lw")
+    # A signal to this shell (the queue runner's timeout) ends flock(1): the lock is released and the
+    # watchdog, seeing its holder gone, stops the server group and the run shell.
+    DRA65_LOCKED=$SPARK_WINDOW flock "${wflag[@]}" -o -E 75 "$LOCK" bash "$SELF" "$@" & FL=$!
+    trap 'kill -TERM $FL 2>/dev/null' INT TERM HUP
+    while :; do wait $FL; rc=$?; kill -0 $FL 2>/dev/null || break; done
+    [ $rc = 75 ] && not_run "$LOCK is held by another process (waited $lw s); this script takes it itself (open the window with --gb10 none)"
     exit $rc
   fi
   BIN=$(readlink -f "$2"); OUT=$(readlink -m "$3"); shift 3; STEPS=("$@")
@@ -143,7 +160,11 @@ run)
   [ -n "$lease" ] && [ -n "$held" ] || not_run "no lease/held in SPARK_WINDOW_DIR='${SPARK_WINDOW_DIR:-}'"
   [ -e "$SPARK_WINDOW_DIR/expired" ] && not_run "the lease has expired ($SPARK_WINDOW_DIR/expired)"
   heldt=$(date -d "$held" +%s) || not_run "cannot read held time '$held'"
-  DEADLINE=$(( heldt + lease * ${SPARK_LEASE_UNIT_S:-60} )); export DRA65_DEADLINE=$DEADLINE
+  DEADLINE=$(( heldt + lease * ${SPARK_LEASE_UNIT_S:-60} ))
+  # DRA65_CAP_S=N (queue slices): also end N s after `held`, before the queue runner's own cap stops the slice.
+  cap=${DRA65_CAP_S:-}; case $cap in '') ;; *[!0-9]*) die "DRA65_CAP_S=$cap: whole seconds" ;;
+    *) [ $((heldt + cap)) -ge "$DEADLINE" ] || DEADLINE=$((heldt + cap)) ;; esac
+  export DRA65_DEADLINE=$DEADLINE
   left=$(( DEADLINE - $(date +%s) ))
   [ "$total" -le "$left" ] || not_run "steps ${STEPS[*]} estimate $total s, the lease has $left s left"
   # 4. Live 35B, Flint and the chip idle; model, port, tools there.
