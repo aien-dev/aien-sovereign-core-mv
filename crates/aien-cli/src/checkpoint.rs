@@ -623,9 +623,9 @@ impl Session {
     /// Call before an agent write to `path` (absolute). Snapshots the
     /// directory once this turn and keeps the file's prior content.
     ///
-    /// Reads `path` by name. Session tests use that. Tool dispatch passes
-    /// bytes from the held descriptor (`before_write_with_bytes`).
-    #[allow(dead_code)]
+    /// Reads `path` by name, so it is test-only. Tool dispatch passes bytes
+    /// from the held descriptor (`before_write_with_bytes`).
+    #[cfg(test)]
     pub fn before_write(&mut self, path: &Path) -> Result<Pending, String> {
         let bytes = match fs::read(path) {
             Ok(bytes) => Some(bytes),
@@ -666,9 +666,9 @@ impl Session {
 
     /// Call after the write; appends one ledger line.
     ///
-    /// Reads the path by name. Tool dispatch passes bytes from the held
-    /// descriptor (`after_write_with_bytes`).
-    #[allow(dead_code)]
+    /// Reads the path by name, so it is test-only. Tool dispatch passes bytes
+    /// from the held descriptor (`after_write_with_bytes`).
+    #[cfg(test)]
     pub fn after_write(&mut self, pending: Pending, tool: &str) -> Result<(), String> {
         let after_bytes = match fs::read(&pending.path) {
             Ok(bytes) => Some(bytes),
@@ -764,9 +764,11 @@ pub fn active_ledger_name() -> Option<String> {
     active().lock().ok()?.as_ref().map(|s| s.id.clone())
 }
 
-/// Like [`record_agent_write`], but the target's before and after bytes come
-/// from `read_target` (a descriptor the caller is holding) instead of a fresh
-/// pathname read.
+/// Run `write` as a recorded agent write of `path`. The target's before and
+/// after bytes come from `read_target` (a descriptor the caller is holding),
+/// never from a fresh pathname read. If the prior content cannot be kept the
+/// write is refused, because it could not be rolled back. If the ledger
+/// append fails after the write, the error is returned beside the result.
 pub fn record_agent_write_with_reader<T>(
     path: &Path,
     tool: &str,
@@ -791,37 +793,6 @@ pub fn record_agent_write_with_reader<T>(
         Ok(bytes) => session.after_write_with_bytes(pending, tool, bytes).err(),
         Err(e) => Some(e),
     };
-    Ok((out, warn))
-}
-
-/// Run `write` as a recorded agent write of `path`. If the prior content
-/// cannot be kept the write is refused, because it could not be rolled back.
-/// If the ledger append fails after the write, the error is returned beside
-/// the result so the caller can show it.
-///
-/// This reads the target by pathname. Tool dispatch uses
-/// [`record_agent_write_with_reader`] so the bytes are the descriptor that
-/// was authorized.
-#[allow(dead_code)]
-pub fn record_agent_write<T>(
-    path: &Path,
-    tool: &str,
-    write: impl FnOnce() -> T,
-) -> Result<(T, Option<String>), String> {
-    let mut guard = active()
-        .lock()
-        .map_err(|_| "checkpoint lock poisoned".to_string())?;
-    let Some(session) = guard
-        .as_mut()
-        .filter(|s| s.scope.as_ref().is_none_or(|d| path.starts_with(d)))
-    else {
-        return Ok((write(), None));
-    };
-    let pending = session
-        .before_write(path)
-        .map_err(|e| format!("CHECKPOINT REFUSAL: {e}"))?;
-    let out = write();
-    let warn = session.after_write(pending, tool).err();
     Ok((out, warn))
 }
 
