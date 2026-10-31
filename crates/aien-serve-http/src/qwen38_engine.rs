@@ -51,6 +51,53 @@ pub const KEEP_FREE: u64 = 8 << 30;
 pub const Q36_OVERLAP_AB_ENV: &str = "AIEN_OMEGA_Q36_OVERLAP_AB";
 /// 0: greedy replies read the logits and take the host argmax every token (L356: the chip's token otherwise).
 pub const CHIP_GREEDY_ENV: &str = "AIEN_SERVE_CHIP_GREEDY";
+/// DRA-87 (default off; 1 = on): a greedy reply that takes the chip's token (above) takes its
+/// FIRST token from the chip too, the graph's argmax at the end of prefill, instead of the
+/// prompt's last logits (993,280 B read back on the 35B) and a host argmax. Same rule as the
+/// host's (the largest logit, the lowest index on a tie). Both doors read it once, at load.
+pub const CHIP_FIRST_TOKEN_ENV: &str = "AIEN_SERVE_CHIP_FIRST_TOKEN";
+/// Test-only red arm for the DRA-87 chip slices (with [`CHIP_FIRST_TOKEN_ENV`]=1): the first
+/// token is a neighbour of the chip's (one less; 1 for 0), so the golden token-0 gate must go
+/// red. Never set in serving.
+pub const FIRST_TOKEN_MUTANT_ENV: &str = "AIEN_Q36_TEST_FIRST_TOKEN_MUTANT";
+
+/// Where a greedy reply's first token comes from (DRA-87).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FirstToken {
+    /// The prompt's last logits read back, the host's argmax (today).
+    Host,
+    /// The graph's argmax at the end of prefill.
+    Chip,
+    /// [`Self::Chip`] moved to a neighbouring token (one less; 1 for 0): the slices' red arm and
+    /// the tests' mutant.
+    ChipMutant,
+}
+
+impl FirstToken {
+    /// [`CHIP_FIRST_TOKEN_ENV`] and [`FIRST_TOKEN_MUTANT_ENV`].
+    pub fn from_env() -> Self {
+        match (
+            std::env::var(CHIP_FIRST_TOKEN_ENV).as_deref() == Ok("1"),
+            std::env::var(FIRST_TOKEN_MUTANT_ENV).as_deref() == Ok("1"),
+        ) {
+            (false, _) => Self::Host,
+            (true, false) => Self::Chip,
+            (true, true) => Self::ChipMutant,
+        }
+    }
+
+    pub fn chip(self) -> bool {
+        self != Self::Host
+    }
+
+    /// The token emitted for the chip's first token `t`.
+    pub fn emit(self, t: u32) -> u32 {
+        match self {
+            Self::ChipMutant => t.checked_sub(1).unwrap_or(1),
+            _ => t,
+        }
+    }
+}
 
 fn model_type(dir: &Path) -> Option<String> {
     std::fs::read_to_string(dir.join("config.json"))
@@ -124,6 +171,8 @@ pub struct Qwen38Door {
     max_context: usize,
     lock_path: PathBuf,
     lock_wait: Duration,
+    /// [`CHIP_FIRST_TOKEN_ENV`], read at load.
+    first_token: FirstToken,
 }
 
 impl Qwen38Door {
@@ -181,8 +230,9 @@ impl Qwen38Door {
             "aien-serve-http: qwen38: {Q36_OVERLAP_AB_ENV}={}",
             std::env::var(Q36_OVERLAP_AB_ENV).unwrap_or_default()
         );
+        let first_token = FirstToken::from_env();
         eprintln!(
-            "aien-serve-http: qwen38 engine ready in {:.1} s: context {max_context} tokens, weights {:.2} GB resident, KV {:.2} GB, rss {:.2} GB, prefill chunk {PREFILL_CHUNK}, spin_us {:?}",
+            "aien-serve-http: qwen38 engine ready in {:.1} s: context {max_context} tokens, weights {:.2} GB resident, KV {:.2} GB, rss {:.2} GB, prefill chunk {PREFILL_CHUNK}, spin_us {:?}, first token {first_token:?}",
             t0.elapsed().as_secs_f64(),
             model.weight_bytes() as f64 / 1e9,
             model.kv_bytes() as f64 / 1e9,
@@ -194,6 +244,7 @@ impl Qwen38Door {
             max_context,
             lock_path: PathBuf::from(GPU_LOCK_PATH),
             lock_wait: REQUEST_LOCK_WAIT,
+            first_token,
         })
     }
 }
@@ -233,17 +284,25 @@ impl Engine for Qwen38Door {
         // Greedy requests take the exact two-pass head (the same tokens, the logits read back are
         // -inf off its candidates); sampled ones need every logit.
         s.model_mut().set_exact_head_on(p.temperature <= 0.001);
-        let t0 = Instant::now();
-        let (mut logits, fs) = s.start(prompt).map_err(EngineError::Failed)?;
-        let prefill_ms = t0.elapsed().as_millis() as u64;
-        let t1 = Instant::now();
         let mut observer = SamplingObserver::new(p);
         // L356: a greedy reply takes the decode graph's own token (argmax on the chip, the
         // host rule) and skips the logits copy and host argmax per token. The first token comes
-        // from the prefill logits as before. AIEN_SERVE_CHIP_GREEDY=0: the host path throughout.
+        // from the prefill logits, or with AIEN_SERVE_CHIP_FIRST_TOKEN=1 (DRA-87) from the
+        // graph's argmax at the end of prefill (no logits read back). AIEN_SERVE_CHIP_GREEDY=0:
+        // the host path throughout.
         let chip_greedy =
             observer.is_greedy() && std::env::var(CHIP_GREEDY_ENV).as_deref() != Ok("0");
-        let mut chip_next: Option<u32> = None;
+        let chip_first = chip_greedy && self.first_token.chip();
+        let t0 = Instant::now();
+        let (mut logits, mut chip_next, fs) = if chip_first {
+            let (t, fs) = s.start_greedy(prompt).map_err(EngineError::Failed)?;
+            (Vec::new(), Some(self.first_token.emit(t)), fs)
+        } else {
+            let (logits, fs) = s.start(prompt).map_err(EngineError::Failed)?;
+            (logits, None, fs)
+        };
+        let prefill_ms = t0.elapsed().as_millis() as u64;
+        let t1 = Instant::now();
         let (mut emitted, mut chip_ns) = (0usize, 0u64);
         let finish = loop {
             if emitted >= p.max_new_tokens || prompt.len() + emitted >= self.max_context {
@@ -284,7 +343,7 @@ impl Engine for Qwen38Door {
         drop(lock);
         let pf = &fs.prefill;
         eprintln!(
-            "aien-serve-http: qwen38: lock wait {lock_wait_ms} ms, prompt {} tok, reuse {:?} ({reused} tok), fed {} ({} stepped), prefill {prefill_ms} ms (gemm chip {} ms, gdn chip {} ms, attn chip {} ms, host {} ms, restore {} ms, snapshot {} ms), decode {emitted} tok in {decode_ms} ms, graph chip {:.1} ms/token, wall {:.1} ms/token, chip greedy {chip_greedy}",
+            "aien-serve-http: qwen38: lock wait {lock_wait_ms} ms, prompt {} tok, reuse {:?} ({reused} tok), fed {} ({} stepped), prefill {prefill_ms} ms (gemm chip {} ms, gdn chip {} ms, attn chip {} ms, host {} ms, restore {} ms, snapshot {} ms), decode {emitted} tok in {decode_ms} ms, graph chip {:.1} ms/token, wall {:.1} ms/token, chip greedy {chip_greedy}, chip first token {chip_first}",
             prompt.len(),
             fs.reuse.unwrap_or(Reuse::Cold),
             fs.fed,

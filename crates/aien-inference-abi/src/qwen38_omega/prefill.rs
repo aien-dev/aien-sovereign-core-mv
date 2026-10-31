@@ -174,6 +174,37 @@ fn argmax(v: &[f32]) -> u32 {
     best as u32
 }
 
+/// CPU model of the graph's two-stage ARGMAX (omega a647b6a9 `omega_blackwell_codegen_dec.h`
+/// ARGMAX, `omega_gpu_q36_graph.c` `rec_argmax`): stage 1, CTA `c` of `ceil(n / span)` takes
+/// `v[c * span ..]` (the tail padded with `NEG_PAD` -1e30) and writes its largest value and the
+/// lowest index holding it; stage 2 does the same over the partials (padded with -1e30), carrying
+/// their indices. omega's SASS simulator checks the kernel against this rule on ties
+/// (`tests/gpu_cmdlist_test.c` "sim argmax tie", the last-equal-index mutant caught). The tests
+/// take it as the chip's argmax (DRA-87).
+#[cfg(test)]
+pub(crate) fn chip_argmax_model(v: &[f32], span: usize) -> u32 {
+    const NEG_PAD: f32 = -1e30;
+    let lowest_max = |vals: &[(f32, u32)]| {
+        let m = vals.iter().fold(f32::NEG_INFINITY, |m, &(x, _)| m.max(x));
+        *vals
+            .iter()
+            .filter(|&&(x, _)| x == m)
+            .min_by_key(|&&(_, i)| i)
+            .expect("a CTA holds at least one value")
+    };
+    let ctas = v.len().div_ceil(span);
+    let mut partials: Vec<(f32, u32)> = (0..ctas)
+        .map(|c| {
+            let vals: Vec<(f32, u32)> = (c * span..(c + 1) * span)
+                .map(|i| (v.get(i).copied().unwrap_or(NEG_PAD), i as u32))
+                .collect();
+            lowest_max(&vals)
+        })
+        .collect();
+    partials.resize(span.max(ctas), (NEG_PAD, u32::MAX));
+    lowest_max(&partials).1
+}
+
 /// Chunk lengths for `n` tokens: at most `chunk` each, none shorter than the DeltaNet prefill's
 /// minimum (the second to last chunk gives up tokens when the remainder would be too short).
 pub(super) fn chunk_lengths(n: usize, chunk: usize) -> Vec<usize> {
@@ -290,12 +321,39 @@ impl Qwen38Omega {
         tokens: &[u32],
         chunk: usize,
     ) -> Result<(u32, Vec<f32>, PrefillStats), String> {
+        let (next, logits, st) = self.prefill_head(tokens, chunk, true)?;
+        Ok((next, logits.ok_or("prefill: no logits")?, st))
+    }
+
+    /// [`Self::prefill`] without the logits (DRA-87, a greedy first token): the 35B returns the
+    /// chip's argmax of the last token's head (the host rule: the largest logit, the first index
+    /// on a tie) and reads no logits back; other models take the host argmax of the head's
+    /// logits, as [`Self::prefill`] does.
+    pub fn prefill_token(
+        &mut self,
+        tokens: &[u32],
+        chunk: usize,
+    ) -> Result<(u32, PrefillStats), String> {
+        self.prefill_head(tokens, chunk, false)
+            .map(|(next, _, st)| (next, st))
+    }
+
+    fn prefill_head(
+        &mut self,
+        tokens: &[u32],
+        chunk: usize,
+        want_logits: bool,
+    ) -> Result<(u32, Option<Vec<f32>>, PrefillStats), String> {
         let t0 = Instant::now();
         if self.is_moe() {
             // The 35B: chunks of the prompt through the chip as rows (L369, the decode step's kernels,
             // the state bit for bit as token by token); AIEN_Q36_PREFILL_CHUNK=0 feeds the decode
             // graph token by token (the old path).
             let chunk = q36_prefill_chunk()?;
+            let mut st = PrefillStats {
+                tokens: tokens.len(),
+                ..Default::default()
+            };
             let mut next = 0u32;
             if chunk == 0 {
                 for &t in tokens {
@@ -304,21 +362,14 @@ impl Qwen38Omega {
             } else {
                 let (n, chunks) = self.prefill_moe(tokens, chunk)?;
                 next = n;
-                let logits = self.logits()?;
-                let st = PrefillStats {
-                    tokens: tokens.len(),
-                    chunks,
-                    wall_ns: ns(t0),
-                    ..Default::default()
-                };
-                return Ok((next, logits, st));
+                st.chunks = chunks;
             }
-            let logits = self.logits()?;
-            let st = PrefillStats {
-                tokens: tokens.len(),
-                wall_ns: ns(t0),
-                ..Default::default()
+            let logits = if want_logits {
+                Some(self.logits()?)
+            } else {
+                None
             };
+            st.wall_ns = ns(t0);
             return Ok((next, logits, st));
         }
         let (last, mut st) = self.prefill_rows(tokens, chunk, false)?;
@@ -327,7 +378,7 @@ impl Qwen38Omega {
         let next = argmax(&logits);
         st.head_ns = ns(t);
         st.wall_ns = ns(t0);
-        Ok((next, logits, st))
+        Ok((next, want_logits.then_some(logits), st))
     }
 
     /// Feeds `tokens` at head 0's next positions for their state only: no head, no residual read
@@ -826,5 +877,78 @@ mod tests {
     #[test]
     fn argmax_takes_the_first_maximum() {
         assert_eq!(argmax(&[0.0, 2.0, 1.0, 2.0]), 1);
+    }
+
+    /// DRA-87 tie rule: the chip's two-stage ARGMAX (its CPU model, 2048 values per CTA over the
+    /// 35B's 248320 logits: 122 CTAs, the last one padded) picks the same token as the host's
+    /// greedy draw (`tensor::sample_argmax`, strict `>`) and this file's `argmax`: the largest
+    /// logit, the lowest index on a tie, within a CTA, across CTAs and against -inf (the exact
+    /// head's masked rows). NaN is outside the rule (the paths differ on it; finite logits only).
+    /// A last-equal-index argmax (omega's ARGMAX mode-1 mutant) disagrees on the tie cases.
+    #[test]
+    fn chip_argmax_model_takes_the_host_rule() {
+        const V: usize = 248_320;
+        const SPAN: usize = 2048;
+        let rand = |seed: u64| -> Vec<f32> {
+            (0..V as u64)
+                .map(|i| {
+                    let mut x = seed ^ i.wrapping_mul(0x9e37_79b9_7f4a_7c15);
+                    x ^= x >> 33;
+                    x = x.wrapping_mul(0xff51_afd7_ed55_8ccd);
+                    x ^= x >> 33;
+                    ((x >> 40) % 64) as f32 * 0.25 - 8.0
+                })
+                .collect()
+        };
+        let mut cases: Vec<(&str, Vec<f32>)> =
+            vec![("random, many ties", rand(1)), ("random", rand(2))];
+        let mut v = vec![0.0f32; V];
+        v[2047] = 3.0;
+        v[2048] = 3.0;
+        cases.push(("tie across a CTA edge", v));
+        let mut v = vec![0.0f32; V];
+        v[5] = 3.0;
+        v[200_000] = 3.0;
+        cases.push(("tie far apart", v));
+        let mut v = vec![0.0f32; V];
+        v[100] = 3.0;
+        v[101] = 3.0;
+        cases.push(("tie inside a CTA", v));
+        cases.push(("all equal", vec![1.5f32; V]));
+        let mut v = vec![f32::NEG_INFINITY; V];
+        for i in [7usize, 4096, 131_072, V - 1] {
+            v[i] = -2.0;
+        }
+        cases.push(("-inf masked, tied survivors", v));
+        let mut v = vec![-1.0f32; V];
+        v[V - 1] = 0.5;
+        cases.push(("max in the padded last CTA", v));
+        let last_equal = |v: &[f32]| -> u32 {
+            let mut best = 0usize;
+            for (i, &x) in v.iter().enumerate() {
+                if x >= v[best] {
+                    best = i;
+                }
+            }
+            best as u32
+        };
+        for (what, v) in &cases {
+            let host = crate::tensor::sample_argmax(v).0;
+            assert_eq!(chip_argmax_model(v, SPAN), host, "{what}");
+            assert_eq!(argmax(v), host, "{what}");
+            if what.contains("tie") || what.contains("equal") {
+                assert_ne!(last_equal(v), host, "{what}: the mutant must differ");
+            }
+        }
+        // Small vocabularies: the same rule at a span of 8 (several CTAs, a padded tail).
+        for n in [1usize, 7, 8, 9, 63, 64, 65] {
+            for top in 0..n {
+                let mut v: Vec<f32> = (0..n).map(|i| (i % 3) as f32).collect();
+                v[top] = 9.0;
+                v[n - 1 - (n - 1 - top) / 2] = 9.0;
+                let host = crate::tensor::sample_argmax(&v).0;
+                assert_eq!(chip_argmax_model(&v, 8), host, "n {n} top {top}");
+            }
+        }
     }
 }

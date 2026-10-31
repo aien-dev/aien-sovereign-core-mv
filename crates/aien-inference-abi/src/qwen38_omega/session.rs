@@ -137,10 +137,20 @@ fn count(st: &mut FeedStats, s: &PrefillStats) {
     }
 }
 
+/// What a prompt's feed hands back after its last token.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum Head {
+    /// The logits (`[vocab]`): the reply's first token is drawn from them on the host.
+    Logits(Vec<f32>),
+    /// The graph's greedy token (DRA-87: the chip's argmax, no logits read back).
+    Token(u32),
+}
+
 /// What a session feeds a prompt into: the model, or a recording fake in the tests.
 pub(crate) trait PromptFeed {
     fn is_moe(&self) -> bool;
-    fn step_token(&mut self, t: u32) -> Result<(), String>;
+    /// One decode step: the graph's greedy token after it.
+    fn step_token(&mut self, t: u32) -> Result<u32, String>;
     /// The rows before the snapshot point, for their state only ([`Qwen38Omega::prefill_state`]).
     fn feed_state(&mut self, tokens: &[u32], chunk: usize) -> Result<PrefillStats, String>;
     /// At least [`q::GDN_PF_MIN_T`] tokens with the head ([`Qwen38Omega::prefill`]): the logits.
@@ -149,6 +159,13 @@ pub(crate) trait PromptFeed {
         tokens: &[u32],
         chunk: usize,
     ) -> Result<(Vec<f32>, PrefillStats), String>;
+    /// As [`Self::feed_head`], the greedy token instead of the logits
+    /// ([`Qwen38Omega::prefill_token`]).
+    fn feed_head_token(
+        &mut self,
+        tokens: &[u32],
+        chunk: usize,
+    ) -> Result<(u32, PrefillStats), String>;
     fn last_logits(&mut self) -> Result<Vec<f32>, String>;
 }
 
@@ -157,8 +174,8 @@ impl PromptFeed for Qwen38Omega {
         Qwen38Omega::is_moe(self)
     }
 
-    fn step_token(&mut self, t: u32) -> Result<(), String> {
-        self.step(t).map(|_| ())
+    fn step_token(&mut self, t: u32) -> Result<u32, String> {
+        self.step(t).map(|(next, _)| next)
     }
 
     fn feed_state(&mut self, tokens: &[u32], chunk: usize) -> Result<PrefillStats, String> {
@@ -174,6 +191,14 @@ impl PromptFeed for Qwen38Omega {
             .map(|(_, logits, s)| (logits, s))
     }
 
+    fn feed_head_token(
+        &mut self,
+        tokens: &[u32],
+        chunk: usize,
+    ) -> Result<(u32, PrefillStats), String> {
+        self.prefill_token(tokens, chunk)
+    }
+
     fn last_logits(&mut self) -> Result<Vec<f32>, String> {
         self.logits()
     }
@@ -181,15 +206,17 @@ impl PromptFeed for Qwen38Omega {
 
 /// Feeds `prompt[from..]` into a state holding `prompt[..from]`: the rows before the snapshot point
 /// without the head, then `snap(m, k)` at that point (its ns, if it took one), then the rest with
-/// the head. Returns the logits after the last token.
+/// the head. Returns the logits after the last token, or with `want_token` the graph's greedy
+/// token after it.
 fn feed_prompt<M: PromptFeed>(
     m: &mut M,
     prompt: &[u32],
     from: usize,
     chunk: usize,
+    want_token: bool,
     st: &mut FeedStats,
     mut snap: impl FnMut(&mut M, usize) -> Result<Option<u64>, String>,
-) -> Result<Vec<f32>, String> {
+) -> Result<Head, String> {
     let mut at = from;
     // The snapshot point: the last turn header not yet inside the reused prefix.
     if let Some(k) = snapshot_point(prompt, from) {
@@ -199,7 +226,7 @@ fn feed_prompt<M: PromptFeed>(
             st.snapshot_ns = t;
         }
     }
-    feed_last(m, &prompt[at..], chunk, st)
+    feed_last(m, &prompt[at..], chunk, want_token, st)
 }
 
 /// Feeds `tokens` without the head (no residual read back).
@@ -221,26 +248,39 @@ fn feed_rows<M: PromptFeed>(
     Ok(())
 }
 
-/// Feeds `tokens` (at least one) and returns the logits after the last.
+/// Feeds `tokens` (at least one) and returns the logits after the last, or with `want_token` the
+/// graph's greedy token after it (no logits read back).
 fn feed_last<M: PromptFeed>(
     m: &mut M,
     tokens: &[u32],
     chunk: usize,
+    want_token: bool,
     st: &mut FeedStats,
-) -> Result<Vec<f32>, String> {
+) -> Result<Head, String> {
     if tokens.is_empty() {
         return Err("qwen38 session: nothing to feed".into());
     }
     if tokens.len() >= q::GDN_PF_MIN_T {
-        let (logits, s) = m.feed_head(tokens, chunk)?;
+        let (head, s) = if want_token {
+            let (t, s) = m.feed_head_token(tokens, chunk)?;
+            (Head::Token(t), s)
+        } else {
+            let (logits, s) = m.feed_head(tokens, chunk)?;
+            (Head::Logits(logits), s)
+        };
         count(st, &s);
-        return Ok(logits);
+        return Ok(head);
     }
+    let mut next = 0;
     for &t in tokens {
-        m.step_token(t)?;
+        next = m.step_token(t)?;
     }
     st.stepped += tokens.len();
-    m.last_logits()
+    if want_token {
+        Ok(Head::Token(next))
+    } else {
+        m.last_logits().map(Head::Logits)
+    }
 }
 
 /// The resident model plus the token record of its live state and of its snapshot.
@@ -299,14 +339,42 @@ impl Qwen38Session {
     /// Feeds `prompt` (reusing what [`plan_reuse`] allows) and returns the logits after its last
     /// token. On any error the live state is dropped (the snapshot, a host copy, stays valid).
     pub fn start(&mut self, prompt: &[u32]) -> Result<(Vec<f32>, FeedStats), String> {
-        let r = self.start_inner(prompt);
+        match self.start_head(prompt, false)? {
+            (Head::Logits(logits), st) => Ok((logits, st)),
+            (Head::Token(_), _) => {
+                Err("qwen38 session: a token where the logits were asked".into())
+            }
+        }
+    }
+
+    /// [`Self::start`] for a greedy reply (DRA-87): the graph's greedy token after the prompt's
+    /// last token (on the 35B the chip's argmax of the head, the host rule: the largest logit,
+    /// the first index on a tie) instead of its logits, so no logits are read back and no host
+    /// argmax runs for the reply's first token.
+    pub fn start_greedy(&mut self, prompt: &[u32]) -> Result<(u32, FeedStats), String> {
+        match self.start_head(prompt, true)? {
+            (Head::Token(t), st) => Ok((t, st)),
+            (Head::Logits(_), _) => Err("qwen38 session: logits where the token was asked".into()),
+        }
+    }
+
+    fn start_head(
+        &mut self,
+        prompt: &[u32],
+        want_token: bool,
+    ) -> Result<(Head, FeedStats), String> {
+        let r = self.start_inner(prompt, want_token);
         if r.is_err() {
             self.history.clear();
         }
         r
     }
 
-    fn start_inner(&mut self, prompt: &[u32]) -> Result<(Vec<f32>, FeedStats), String> {
+    fn start_inner(
+        &mut self,
+        prompt: &[u32],
+        want_token: bool,
+    ) -> Result<(Head, FeedStats), String> {
         let t0 = Instant::now();
         if prompt.is_empty() {
             return Err("qwen38 session: empty prompt".into());
@@ -340,11 +408,12 @@ impl Qwen38Session {
         let from = self.history.len();
         st.fed = prompt.len() - from;
         let (snap, snap_tokens) = (&mut self.snap, &mut self.snap_tokens);
-        let logits = feed_prompt(
+        let head = feed_prompt(
             &mut self.model,
             prompt,
             from,
             self.chunk,
+            want_token,
             &mut st,
             |m, k| {
                 if k == 0 || snap_tokens.as_deref() == Some(&prompt[..k]) {
@@ -359,7 +428,7 @@ impl Qwen38Session {
         )?;
         self.history.extend_from_slice(&prompt[from..]);
         st.wall_ns = ns(t0);
-        Ok((logits, st))
+        Ok((head, st))
     }
 
     /// Feeds one reply token through the decode graph without reading the logits: the graph's
@@ -401,7 +470,7 @@ impl Qwen38Session {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::qwen38_omega::prefill::{q36_chunk_walk, q36_state, Q36Feed};
+    use crate::qwen38_omega::prefill::{chip_argmax_model, q36_chunk_walk, q36_state, Q36Feed};
 
     #[test]
     fn reuse_takes_the_longest_strict_prefix() {
@@ -499,21 +568,44 @@ mod tests {
 
     /// Records every token the feed path hands over, with the position it lands at and how
     /// (`s` decode step, `r` state chunk, `h` chunk with the head), through the same routing as
-    /// the 35B: [`q36_state`] for the rows, [`q36_chunk_walk`] for every chunk run.
+    /// the 35B: [`q36_state`] for the rows, [`q36_chunk_walk`] for every chunk run. Its "model":
+    /// the logits after the last token fed are a function of every (position, token) fed so far,
+    /// over 97 tokens and 5 levels (so the largest logit is always tied); the graph's greedy
+    /// token is the CPU model of the chip's two-stage ARGMAX over them ([`chip_argmax_model`]).
     struct Fake {
         c: usize,
         pos: usize,
         fed: Vec<(usize, u32, char)>,
         chunks: Vec<usize>,
+        hash: u64,
+        /// Head reads: `L` logits after a head chunk, `T` token after a head chunk, `l` the last
+        /// step's logits.
+        heads: Vec<char>,
     }
 
+    const FAKE_VOCAB: usize = 97;
+
     impl Fake {
+        fn new(c: usize, pos: usize) -> Self {
+            Self {
+                c,
+                pos,
+                fed: Vec::new(),
+                chunks: Vec::new(),
+                hash: 0x5eed,
+                heads: Vec::new(),
+            }
+        }
+
         fn take(&mut self, tokens: &[u32], pos: usize, how: char) -> Result<(), String> {
             if pos != self.pos {
                 return Err(format!("fed at {pos}, the state is at {}", self.pos));
             }
             for &t in tokens {
                 self.fed.push((self.pos, t, how));
+                self.hash = (self.hash ^ ((self.pos as u64) << 32 | u64::from(t)))
+                    .wrapping_mul(0x9e37_79b9_7f4a_7c15)
+                    .rotate_left(29);
                 self.pos += 1;
             }
             Ok(())
@@ -527,6 +619,37 @@ mod tests {
             })?;
             assert_eq!(end, self.pos);
             Ok(n)
+        }
+
+        fn logits(&self) -> Vec<f32> {
+            (0..FAKE_VOCAB as u64)
+                .map(|i| {
+                    let x = (self.hash ^ i.wrapping_mul(0xff51_afd7_ed55_8ccd))
+                        .wrapping_mul(0xc4ce_b9fe_1a85_ec53);
+                    ((x >> 59) % 5) as f32
+                })
+                .collect()
+        }
+
+        fn chip_token(&self) -> u32 {
+            chip_argmax_model(&self.logits(), 8)
+        }
+
+        fn head(&mut self, tokens: &[u32]) -> Result<PrefillStats, String> {
+            let mut chunks = 0;
+            if self.c == 0 {
+                for &t in tokens {
+                    self.q36_step(t)?;
+                }
+            } else {
+                let c = self.c;
+                chunks = self.walk(tokens, c, 'h')?;
+            }
+            Ok(PrefillStats {
+                tokens: tokens.len(),
+                chunks,
+                ..Default::default()
+            })
         }
     }
 
@@ -546,8 +669,9 @@ mod tests {
             true
         }
 
-        fn step_token(&mut self, t: u32) -> Result<(), String> {
-            self.q36_step(t)
+        fn step_token(&mut self, t: u32) -> Result<u32, String> {
+            self.q36_step(t)?;
+            Ok(self.chip_token())
         }
 
         fn feed_state(&mut self, tokens: &[u32], _chunk: usize) -> Result<PrefillStats, String> {
@@ -565,25 +689,24 @@ mod tests {
             tokens: &[u32],
             _chunk: usize,
         ) -> Result<(Vec<f32>, PrefillStats), String> {
-            let mut chunks = 0;
-            if self.c == 0 {
-                for &t in tokens {
-                    self.q36_step(t)?;
-                }
-            } else {
-                let c = self.c;
-                chunks = self.walk(tokens, c, 'h')?;
-            }
-            let s = PrefillStats {
-                tokens: tokens.len(),
-                chunks,
-                ..Default::default()
-            };
-            Ok((vec![0.0], s))
+            let s = self.head(tokens)?;
+            self.heads.push('L');
+            Ok((self.logits(), s))
+        }
+
+        fn feed_head_token(
+            &mut self,
+            tokens: &[u32],
+            _chunk: usize,
+        ) -> Result<(u32, PrefillStats), String> {
+            let s = self.head(tokens)?;
+            self.heads.push('T');
+            Ok((self.chip_token(), s))
         }
 
         fn last_logits(&mut self) -> Result<Vec<f32>, String> {
-            Ok(vec![0.0])
+            self.heads.push('l');
+            Ok(self.logits())
         }
     }
 
@@ -597,24 +720,22 @@ mod tests {
         for c in [cap, 0] {
             for len in [1, cap - 1, cap, cap + 1, 2 * cap + 3] {
                 // 61: a cached prefix ending mid-chunk; len - 3: a live state past the header.
-                for from in [0, 61, len.saturating_sub(3)] {
+                for (from, want_token) in [0, 61, len.saturating_sub(3)]
+                    .into_iter()
+                    .flat_map(|f| [(f, false), (f, true)])
+                {
                     if from >= len {
                         continue;
                     }
                     let p = rendered(len);
-                    let mut f = Fake {
-                        c,
-                        pos: from,
-                        fed: Vec::new(),
-                        chunks: Vec::new(),
-                    };
+                    let mut f = Fake::new(c, from);
                     let mut st = FeedStats::default();
                     let mut snaps = Vec::new();
-                    let r = feed_prompt(&mut f, &p, from, 512, &mut st, |m, k| {
+                    let r = feed_prompt(&mut f, &p, from, 512, want_token, &mut st, |m, k| {
                         snaps.push((k, m.pos));
                         Ok(None)
                     });
-                    let at = format!("c {c} len {len} from {from}");
+                    let at = format!("c {c} len {len} from {from} token {want_token}");
                     r.unwrap_or_else(|e| panic!("{at}: {e}"));
                     let got: Vec<(usize, u32)> = f.fed.iter().map(|&(i, t, _)| (i, t)).collect();
                     let want: Vec<(usize, u32)> = (from..len).map(|i| (i, p[i])).collect();
@@ -636,5 +757,84 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// Feeds `p[from..]` into a fresh fake: what came back, the stats and the fake.
+    fn feed(p: &[u32], from: usize, c: usize, want_token: bool) -> (Head, FeedStats, Fake) {
+        let mut f = Fake::new(c, from);
+        let mut st = FeedStats::default();
+        let h = feed_prompt(&mut f, p, from, 512, want_token, &mut st, |_, _| Ok(None))
+            .unwrap_or_else(|e| panic!("from {from} c {c} token {want_token}: {e}"));
+        (h, st, f)
+    }
+
+    /// DRA-87, the single door: `start_greedy`'s feed (`want_token`) gives as the reply's first
+    /// token exactly what `start`'s logits give the host's greedy draw (`sample_argmax`, the
+    /// first index on a tie; the fake's largest logit is always tied), with the same tokens fed
+    /// the same way and the same stats, and reads no logits: the head chunk returns its token
+    /// (`T`, never `L`), a short tail returns its last step's token (never `l`). `start` (the
+    /// flag off) is unchanged: it reads the logits once, exactly where it did.
+    #[test]
+    fn greedy_first_token_is_the_host_argmax_without_logits() {
+        let cap = q::q36::PREFILL_MAX_ROWS;
+        let min = q::GDN_PF_MIN_T;
+        let headerless =
+            |len: usize| -> Vec<u32> { (0..len as u32).map(|i| 3000 + i * 7).collect() };
+        let mut prompts: Vec<(String, Vec<u32>)> = Vec::new();
+        for len in [
+            1,
+            2,
+            min - 1,
+            min,
+            min + 1,
+            40,
+            cap - 1,
+            cap,
+            cap + 1,
+            2 * cap + 3,
+        ] {
+            prompts.push((format!("rendered {len}"), rendered(len)));
+            prompts.push((format!("headerless {len}"), headerless(len)));
+        }
+        let mut ties = 0;
+        for c in [cap, 0] {
+            for (name, p) in &prompts {
+                for from in [0, 61, p.len().saturating_sub(3)] {
+                    if from >= p.len() {
+                        continue;
+                    }
+                    let at = format!("{name} c {c} from {from}");
+                    let (off, st_off, f_off) = feed(p, from, c, false);
+                    let (on, st_on, f_on) = feed(p, from, c, true);
+                    let Head::Logits(logits) = off else {
+                        panic!("{at}: start gave a token")
+                    };
+                    let Head::Token(tok) = on else {
+                        panic!("{at}: start_greedy gave logits")
+                    };
+                    let host = crate::tensor::sample_argmax(&logits).0;
+                    assert_eq!(tok, host, "{at}");
+                    let top = logits.iter().cloned().fold(f32::MIN, f32::max);
+                    if logits.iter().filter(|&&x| x == top).count() > 1 {
+                        ties += 1;
+                    }
+                    assert_eq!(f_on.fed, f_off.fed, "{at}");
+                    assert_eq!(f_on.chunks, f_off.chunks, "{at}");
+                    assert_eq!(
+                        (st_on.stepped, &st_on.prefill),
+                        (st_off.stepped, &st_off.prefill),
+                        "{at}"
+                    );
+                    assert!(
+                        f_on.heads.iter().all(|&h| h == 'T'),
+                        "{at}: {:?}",
+                        f_on.heads
+                    );
+                    assert_eq!(f_off.heads.len(), 1, "{at}: {:?}", f_off.heads);
+                    assert_eq!(f_on.heads.len(), usize::from(f_off.heads[0] == 'L'), "{at}");
+                }
+            }
+        }
+        assert!(ties > 0, "the cases must hold ties at the largest logit");
     }
 }
