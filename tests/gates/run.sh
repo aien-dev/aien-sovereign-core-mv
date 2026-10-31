@@ -175,6 +175,9 @@ case "$step" in
   # SC-GB10-MODEL-DIR (portable, shell only): where SC-GB10-SERVE-CHAT finds its checkpoint under a
   # read-only HOME, and its NOT_RUN model_missing before any build or GPU start (no cargo, no GPU).
   gb10-model-dir)      bash scripts/test-gb10-model-dir.sh ;;
+  # No hosted mirror (the checkpoint is host-only). SC-EXPERT-BYTES (DRA-63, #855): per-expert bytes of the
+  # Qwen3.6-35B-A3B-FP8 headers, layers 0-39, by seeded Omega; width 768 and FP32 scales must go red.
+  expert-bytes)        bash om/expert-bytes/gate.sh ;;
   # hardening.yml
   kv-props)
     cargo fetch --manifest-path crates/aien-replay/Cargo.toml
