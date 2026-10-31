@@ -24,7 +24,7 @@ umask 022
 
 W=/home/drakestapleton/work/dra-66
 BIN=$W/bin-head/aien-serve-http
-SHA_HEAD=${SHA_HEAD:?set SHA_HEAD to the sha256 recorded in PROTOCOL.md for $BIN}
+SHA_HEAD=3bd287beb5c74fc5c241307765f3a858c1a7e33e0d1d5ae2d766f2dae13e9c69 # sc 84a28c09 + omega a647b6a9 (PROTOCOL.md)
 GOLD=$W/core/evidence/q36-host-20261020/gen-chat-max-24.json
 MODEL=/home/drakestapleton/models/qwen3.6-35b-a3b-fp8-95a723d0
 PORT=18190
