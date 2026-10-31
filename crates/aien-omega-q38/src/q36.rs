@@ -189,8 +189,20 @@ pub enum Q36Buf {
 
 /// Heads per stroke the chip library lays out at most (one 4096-launch command list holds eight 40-layer tokens of 444 launches).
 pub const MAX_HEADS: usize = 8;
-/// Most tokens one prefill chunk carries (`OMEGA_GPU_Q36_PREFILL_MAX_ROWS`).
+/// Most tokens one legacy prefill chunk carries (`OMEGA_GPU_Q36_PREFILL_MAX_ROWS`).
 pub const PREFILL_MAX_ROWS: usize = 128;
+/// Most tokens one tensor-core (QMMA) prefill chunk carries (`OMEGA_GPU_Q36_PREFILL_TC_MAX_ROWS`, DRA-83).
+pub const PREFILL_TC_MAX_ROWS: usize = 8192;
+
+/// The chip library's prefill row bound for this process: [`PREFILL_TC_MAX_ROWS`] when
+/// `AIEN_OMEGA_Q36_PF_QMMA` is exactly `1`, else [`PREFILL_MAX_ROWS`] (CUDApp `prefill_rows_max`).
+pub fn prefill_rows_max() -> usize {
+    rows_max_for(std::env::var("AIEN_OMEGA_Q36_PF_QMMA").ok().as_deref())
+}
+
+pub fn rows_max_for(qmma: Option<&str>) -> usize {
+    if qmma == Some("1") { PREFILL_TC_MAX_ROWS } else { PREFILL_MAX_ROWS }
+}
 
 pub struct Q36Graph {
     #[cfg(has_omega_q36)]

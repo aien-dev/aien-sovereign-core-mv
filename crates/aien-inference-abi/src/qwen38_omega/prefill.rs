@@ -604,23 +604,36 @@ impl Qwen38Omega {
     }
 }
 
-/// Prompt tokens per 35B prefill chunk (`AIEN_Q36_PREFILL_CHUNK`, default the graph's most,
-/// [`q::q36::PREFILL_MAX_ROWS`]); 0 = token by token through the decode graph.
+/// Prompt tokens per 35B prefill chunk: `AIEN_Q36_PREFILL_CHUNK` (0 = token by token through the
+/// decode graph), else the chip library's `AIEN_OMEGA_Q36_PF_CHUNK`, else
+/// [`q::q36::PREFILL_MAX_ROWS`] (128). At most [`q::q36::prefill_rows_max`]: 8192 only with
+/// `AIEN_OMEGA_Q36_PF_QMMA=1` (DRA-83), else 128.
 pub fn q36_prefill_chunk() -> Result<usize, String> {
-    parse_q36_chunk(std::env::var("AIEN_Q36_PREFILL_CHUNK").ok().as_deref())
+    parse_q36_chunk_env(
+        std::env::var("AIEN_Q36_PREFILL_CHUNK").ok().as_deref(),
+        std::env::var("AIEN_OMEGA_Q36_PF_CHUNK").ok().as_deref(),
+        q::q36::prefill_rows_max(),
+    )
 }
 
-fn parse_q36_chunk(v: Option<&str>) -> Result<usize, String> {
-    match v {
-        Some(v) => match v.parse::<usize>() {
-            Ok(n) if n <= q::q36::PREFILL_MAX_ROWS => Ok(n),
-            _ => Err(format!(
-                "AIEN_Q36_PREFILL_CHUNK={v}: 0 (off) ..= {}",
-                q::q36::PREFILL_MAX_ROWS
-            )),
+fn parse_q36_chunk_env(door: Option<&str>, lib: Option<&str>, max: usize) -> Result<usize, String> {
+    let digits = |v: &str| !v.is_empty() && v.bytes().all(|b| b.is_ascii_digit());
+    match (door, lib) {
+        (Some(v), _) => match v.parse::<usize>() {
+            Ok(n) if digits(v) && n <= max => Ok(n),
+            _ => Err(format!("AIEN_Q36_PREFILL_CHUNK={v}: 0 (off) ..= {max}")),
         },
-        None => Ok(q::q36::PREFILL_MAX_ROWS),
+        (None, Some(v)) => match v.parse::<usize>() {
+            Ok(n) if digits(v) && n >= 1 && n <= max => Ok(n),
+            _ => Err(format!("AIEN_OMEGA_Q36_PF_CHUNK={v}: 1 ..= {max}")),
+        },
+        (None, None) => Ok(q::q36::PREFILL_MAX_ROWS),
     }
+}
+
+#[cfg(test)]
+fn parse_q36_chunk(v: Option<&str>) -> Result<usize, String> {
+    parse_q36_chunk_env(v, None, q::q36::PREFILL_MAX_ROWS)
 }
 
 /// The lengths of the 35B prefill's chunks for `n` tokens: whole chunks of `chunk` and the rest
@@ -716,7 +729,7 @@ impl Qwen38Omega {
     ) -> Result<(Option<u32>, usize), String> {
         let (h, v) = (self.config.hidden, self.config.vocab);
         let pos0 = self.head_pos(head)?;
-        if tokens.is_empty() || chunk == 0 || chunk > q::q36::PREFILL_MAX_ROWS {
+        if tokens.is_empty() || chunk == 0 || chunk > q::q36::prefill_rows_max() {
             return Err(format!(
                 "q36 prefill: {} tokens in chunks of {chunk}",
                 tokens.len()
@@ -821,6 +834,31 @@ mod tests {
         assert_eq!(parse_q36_chunk(Some("128")), Ok(128));
         assert!(parse_q36_chunk(Some("129")).is_err());
         assert!(parse_q36_chunk(Some("x")).is_err());
+    }
+
+    #[test]
+    fn q36_chunk_door_falls_back_and_caps_by_qmma() {
+        let (legacy, tc) = (q::q36::PREFILL_MAX_ROWS, q::q36::PREFILL_TC_MAX_ROWS);
+        assert_eq!(q::q36::rows_max_for(None), legacy);
+        assert_eq!(q::q36::rows_max_for(Some("1")), tc);
+        for off in ["0", "10", "yes", ""] {
+            assert_eq!(q::q36::rows_max_for(Some(off)), legacy);
+        }
+        // default unchanged; the door knob wins; the library knob is the fallback
+        assert_eq!(parse_q36_chunk_env(None, None, tc), Ok(128));
+        assert_eq!(parse_q36_chunk_env(None, Some("4096"), tc), Ok(4096));
+        assert_eq!(parse_q36_chunk_env(Some("0"), Some("4096"), tc), Ok(0));
+        assert_eq!(parse_q36_chunk_env(Some("8192"), None, tc), Ok(8192));
+        assert_eq!(parse_q36_chunk_env(Some("2048"), None, tc), Ok(2048));
+        // refusals: above the bound, 2048 without QMMA, the library knob at 0, non-digits
+        assert!(parse_q36_chunk_env(Some("8193"), None, tc).is_err());
+        assert!(parse_q36_chunk_env(Some("2048"), None, legacy).is_err());
+        assert!(parse_q36_chunk_env(None, Some("2048"), legacy).is_err());
+        assert!(parse_q36_chunk_env(None, Some("0"), tc).is_err());
+        for bad in ["", "+64", " 64", "-1", "x"] {
+            assert!(parse_q36_chunk_env(Some(bad), None, tc).is_err(), "{bad:?}");
+            assert!(parse_q36_chunk_env(None, Some(bad), tc).is_err(), "{bad:?}");
+        }
     }
 
     #[test]
