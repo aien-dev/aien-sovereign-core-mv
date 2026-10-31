@@ -1,0 +1,624 @@
+note om/timeline/timeline.om: the stroke gate's per-kind chip timeline as canonical TSV (DRA-75).
+note Usage: timeline [N] < gate.log. Reads one qwen36_stroke_gate log (stdout+stderr, or a script log
+note that kept its lines) from stdin, at most 983040 bytes. Two line forms start with "timeline:"
+note (crates/aien-inference-abi/src/bin/qwen36_stroke_gate.rs, AIEN_STROKE_STAMPS=1):
+note   row   "timeline: " KIND as {:>8} " " LAUNCHES as {:5} " launches " MS as {:9.3} " ms (" PCT as {:5.1} "%)"
+note   total "timeline: total " MS as {:.3} " ms over " LAUNCHES " launches (last stroke)"
+note Every other "timeline:" line is malformed. Every field is checked exactly: KIND is 1..16 bytes of
+note [a-z0-9_], right aligned to width 8 (no padding beyond it); numbers are right aligned to their
+note width, decimal, with exactly the printed number of fractional digits.
+note A block is one or more rows closed by a total line. Exactly one block is admitted. In the block:
+note kinds are distinct, rows are ordered by ms not increasing (the gate sorts by ns), the launches add
+note up to the total exactly, the ms add up to the total within one microsecond per row (each figure is
+note rounded to the microsecond), and every percentage is within 0.1 of 100 * ms / total.
+note N (heads) comes from the argument, else from "QWEN36_STROKE_GATE heads N " anywhere in the log;
+note every such line must agree when there is no argument; with an argument, the argument must be one of
+note them when the log has any. N is 1..8 (the gate's own limit).
+note Output (stdout), canonical: "n\tclass\tlaunches\tms\n", then one row per kind in byte order of the
+note kind, then the row "total"; ms printed with three decimals as read.
+note Exit 0 ok; 2 usage; 3 io or capacity; 4 malformed timeline line; 5 block sums disagree;
+note 6 no block, an unclosed block or more than one block; 7 N missing, conflicting or outside 1..8;
+note 8 duplicate kind, rows out of order or too many kinds. A refusal prints
+note "timeline refused CODE REASON line L" on stderr and nothing on stdout.
+note Build: { printf 'om2\n'; cat om/timeline/timeline.om; } | "$AIEN_OMC" > timeline
+
+const tlx ulong 999999999999999
+const tlcap ulong 983040
+const tlrow ulong 64
+const tlnm ulong 16
+
+note gst slots
+const kop ulong 0
+const kn ulong 1
+const kpos ulong 2
+const krows ulong 3
+const kblk ulong 4
+const ktms ulong 5
+const ktla ulong 6
+const khs ulong 7
+const karg ulong 8
+const kln ulong 9
+const kout ulong 10
+
+global gin uchar 983041
+global gst ulong 16
+global gnm uchar 1024
+global gnl ulong 64
+global gla ulong 64
+global gms ulong 64
+global gpc ulong 64
+global gpr uchar 64
+global gob uchar 65536
+global gdg uchar 24
+global ga uchar 64
+
+text tusage "usage: timeline [N] < gate.log (N 1..8)"
+text tio "io"
+text tcap "input-capacity"
+text tmal "malformed-timeline-line"
+text tsum "block-sums-disagree"
+text tpct "percentage-disagrees"
+text tnob "no-timeline-block"
+text topen "unclosed-block"
+text tmany "more-than-one-block"
+text tnone "heads-missing"
+text tconf "heads-conflict"
+text targn "argument-not-in-log"
+text thout "heads-outside-1-8"
+text tdup "duplicate-kind"
+text tord "rows-out-of-order"
+text trowc "too-many-kinds"
+text tref "timeline refused "
+text tline " line "
+text tpre "timeline:"
+text ttot "total "
+text tsp " "
+text tlau " launches "
+text tmso " ms ("
+text tpe "%)"
+text tmov " ms over "
+text tlst " launches (last stroke)"
+text tgate "QWEN36_STROKE_GATE heads "
+text thdr "n\tclass\tlaunches\tms\n"
+text ttotal "total"
+
+note ======== output ========
+
+fn tl_dec v ulong to ulong
+n = ulong 0
+x = v
+while true bound 25
+put gdg n add 48 uchar rem x 10
+n = add n 1
+x = div x 10
+if eq x 0
+break
+end
+end
+ret n
+end
+
+fn tl_ob c uchar to void
+p = get gst kop
+if ge p len gob
+put gst kout 1
+ret
+end
+put gob p c
+put gst kop add p 1
+end
+
+fn tl_otx t view uchar * to void
+for i ulong len t
+tl_ob get t i
+end
+end
+
+fn tl_ou v ulong to void
+n = tl_dec v
+for i ulong n
+tl_ob get gdg sub sub n i 1
+end
+end
+
+note tl_oms: microseconds as milliseconds with three decimals
+fn tl_oms v ulong to void
+tl_ou div v 1000
+tl_ob 46
+d = rem v 1000
+tl_ob add 48 uchar div d 100
+tl_ob add 48 uchar rem div d 10 10
+tl_ob add 48 uchar rem d 10
+end
+
+fn tl_oflush fd int to void
+o = ulong 0
+m = get gst kop
+note every pass writes at least one byte of at most 65536
+while lt o m bound 65536
+w = write fd gob o sub m o
+if le w 0
+exit 3
+end
+o = add o ulong w
+end
+put gst kop 0
+end
+
+fn tl_die c ulong t view uchar * to void
+put gst kop 0
+put gst kout 0
+tl_otx tref
+tl_ou c
+tl_ob 32
+tl_otx t
+tl_otx tline
+tl_ou get gst kln
+tl_ob 10
+tl_oflush 2
+exit int c
+end
+
+note ======== scanning ========
+
+note tl_pre: gin[p .. e) starts with t
+fn tl_pre p ulong e ulong t view uchar * to bool
+if gt p e
+ret false
+end
+if gt len t sub e p
+ret false
+end
+for i ulong len t
+if ne get gin add p i get t i
+ret false
+end
+end
+ret true
+end
+
+note tl_lit: t at gin[p]; the position after it in gst kpos
+fn tl_lit p ulong e ulong t view uchar * to bool
+if not tl_pre p e t
+ret false
+end
+put gst kpos add p len t
+ret true
+end
+
+fn tl_dig c uchar to bool
+ret and ge c 48 le c 57
+end
+
+note tl_num: a decimal field at gin[p .. e) right aligned to width w (0: no padding at all) with fr
+note fractional digits (0, 1 or 3); the value scaled by 10^fr, tlx when malformed; the position after it
+note in gst kpos. At most 15 integer digits; a field wider than w carries no padding.
+fn tl_num p ulong e ulong w ulong fr ulong to ulong
+q = p
+while lt q e bound 999999
+if ne get gin q 32
+break
+end
+q = add q 1
+end
+s = sub q p
+v = ulong 0
+d = ulong 0
+while lt q e bound 16
+if not tl_dig get gin q
+break
+end
+if ge d 15
+ret tlx
+end
+v = add mul v 10 ulong sub get gin q 48
+d = add d 1
+q = add q 1
+end
+if eq d 0
+ret tlx
+end
+if gt fr 0
+if ge q e
+ret tlx
+end
+if ne get gin q 46
+ret tlx
+end
+q = add q 1
+for i ulong fr
+if ge q e
+ret tlx
+end
+if not tl_dig get gin q
+ret tlx
+end
+v = add mul v 10 ulong sub get gin q 48
+q = add q 1
+end
+end
+if lt q e
+if tl_dig get gin q
+ret tlx
+end
+end
+wd = sub q p
+if lt wd w
+ret tlx
+end
+if and gt s 0 ne wd w
+ret tlx
+end
+put gst kpos q
+ret v
+end
+
+fn tl_kch c uchar to bool
+if tl_dig c
+ret true
+end
+if and ge c 97 le c 122
+ret true
+end
+ret eq c 95
+end
+
+note tl_name: the kind at gin[p ..], right aligned to width 8, copied to row r of gnm; its length,
+note tlx when malformed; the position after it in gst kpos
+fn tl_name p ulong e ulong r ulong to ulong
+q = p
+while lt q e bound 999999
+if ne get gin q 32
+break
+end
+q = add q 1
+end
+s = sub q p
+k = ulong 0
+while lt q e bound 17
+if not tl_kch get gin q
+break
+end
+if ge k tlnm
+ret tlx
+end
+put gnm add mul r tlnm k get gin q
+k = add k 1
+q = add q 1
+end
+if eq k 0
+ret tlx
+end
+wd = sub q p
+if lt wd 8
+ret tlx
+end
+if and gt s 0 ne wd 8
+ret tlx
+end
+put gst kpos q
+ret k
+end
+
+note tl_same: rows a and b hold the same kind
+fn tl_same a ulong b ulong to bool
+n = get gnl a
+if ne n get gnl b
+ret false
+end
+for i ulong n
+if ne get gnm add mul a tlnm i get gnm add mul b tlnm i
+ret false
+end
+end
+ret true
+end
+
+note tl_before: kind of row a sorts before kind of row b (byte order, a prefix first)
+fn tl_before a ulong b ulong to bool
+na = get gnl a
+nb = get gnl b
+m = na
+if lt nb m
+m = nb
+end
+for i ulong m
+x = get gnm add mul a tlnm i
+y = get gnm add mul b tlnm i
+if lt x y
+ret true
+end
+if gt x y
+ret false
+end
+end
+ret lt na nb
+end
+
+fn tl_row p ulong e ulong to void
+r = get gst krows
+if gt get gst kblk 0
+tl_die 6 tmany
+end
+if ge r tlrow
+tl_die 8 trowc
+end
+k = tl_name p e r
+if eq k tlx
+tl_die 4 tmal
+end
+put gnl r k
+if not tl_lit get gst kpos e tsp
+tl_die 4 tmal
+end
+la = tl_num get gst kpos e 5 0
+if eq la tlx
+tl_die 4 tmal
+end
+if not tl_lit get gst kpos e tlau
+tl_die 4 tmal
+end
+ms = tl_num get gst kpos e 9 3
+if eq ms tlx
+tl_die 4 tmal
+end
+if not tl_lit get gst kpos e tmso
+tl_die 4 tmal
+end
+pc = tl_num get gst kpos e 5 1
+if eq pc tlx
+tl_die 4 tmal
+end
+if not tl_lit get gst kpos e tpe
+tl_die 4 tmal
+end
+if ne get gst kpos e
+tl_die 4 tmal
+end
+put gla r la
+put gms r ms
+put gpc r pc
+for j ulong r
+if tl_same j r
+tl_die 8 tdup
+end
+end
+if gt r 0
+if gt ms get gms sub r 1
+tl_die 8 tord
+end
+end
+put gst krows add r 1
+end
+
+note tl_pcok: |1000 * ms - pct10 * total| <= total, all in microseconds and tenths of a percent
+fn tl_pcok r ulong t ulong to bool
+a = mul get gms r 1000
+b = mul get gpc r t
+if gt a b
+ret le sub a b t
+end
+ret le sub b a t
+end
+
+fn tl_total p ulong e ulong to void
+r = get gst krows
+if gt get gst kblk 0
+tl_die 6 tmany
+end
+if eq r 0
+tl_die 6 tnob
+end
+ms = tl_num p e 0 3
+if eq ms tlx
+tl_die 4 tmal
+end
+if not tl_lit get gst kpos e tmov
+tl_die 4 tmal
+end
+la = tl_num get gst kpos e 0 0
+if eq la tlx
+tl_die 4 tmal
+end
+if not tl_lit get gst kpos e tlst
+tl_die 4 tmal
+end
+if ne get gst kpos e
+tl_die 4 tmal
+end
+sl = ulong 0
+sm = ulong 0
+for i ulong r
+sl = add sl get gla i
+sm = add sm get gms i
+if not tl_pcok i ms
+tl_die 5 tpct
+end
+end
+if ne sl la
+tl_die 5 tsum
+end
+dm = sub sm ms
+if lt sm ms
+dm = sub ms sm
+end
+if gt dm r
+tl_die 5 tsum
+end
+put gst ktms ms
+put gst ktla la
+put gst kblk 1
+end
+
+note tl_heads: "QWEN36_STROKE_GATE heads N " anywhere in gin[p .. e): N joins the set in gst khs
+fn tl_heads p ulong e ulong to void
+if lt sub e p len tgate
+ret
+end
+for i ulong add sub sub e p len tgate 1
+q = add p i
+if tl_pre q e tgate
+v = tl_num add q len tgate e 0 0
+if eq v tlx
+tl_die 7 thout
+end
+if or lt v 1 gt v 8
+tl_die 7 thout
+end
+put gst khs or get gst khs shl ulong 1 v
+end
+end
+end
+
+fn tl_line p ulong e ulong to void
+tl_heads p e
+if not tl_pre p e tpre
+ret
+end
+q = add p len tpre
+if not tl_lit q e tsp
+tl_die 4 tmal
+end
+q = get gst kpos
+if tl_lit q e ttot
+tl_total get gst kpos e
+ret
+end
+tl_row q e
+end
+
+note ======== main ========
+
+fn tl_readin to void
+n = ulong 0
+note every pass adds at least one byte of at most 983041
+while lt n len gin bound 983041
+k = read 0 gin n sub len gin n
+if lt k 0
+tl_die 3 tio
+end
+if eq k 0
+break
+end
+n = add n ulong k
+end
+if gt n tlcap
+tl_die 3 tcap
+end
+put gst kn n
+end
+
+fn tl_scan to void
+n = get gst kn
+p = ulong 0
+note every line takes at least one byte of at most 983040
+while lt p n bound 983041
+put gst kln add get gst kln 1
+e = p
+while lt e n bound 983041
+if eq get gin e 10
+break
+end
+e = add e 1
+end
+tl_line p e
+p = add e 1
+end
+end
+
+note tl_heads_n: the resolved N
+fn tl_heads_n to ulong
+hs = get gst khs
+a = get gst karg
+if gt a 0
+if eq hs 0
+ret a
+end
+if eq and hs shl ulong 1 a 0
+tl_die 7 targn
+end
+ret a
+end
+if eq hs 0
+tl_die 7 tnone
+end
+for v ulong 9
+if eq hs shl ulong 1 v
+ret v
+end
+end
+tl_die 7 tconf
+ret 0
+end
+
+fn tl_emit nh ulong to void
+r = get gst krows
+tl_otx thdr
+for k ulong r
+b = r
+for j ulong r
+if eq get gpr j 0
+if eq b r
+b = j
+end
+if tl_before j b
+b = j
+end
+end
+end
+put gpr b 1
+tl_ou nh
+tl_ob 9
+n = get gnl b
+for i ulong n
+tl_ob get gnm add mul b tlnm i
+end
+tl_ob 9
+tl_ou get gla b
+tl_ob 9
+tl_oms get gms b
+tl_ob 10
+end
+tl_ou nh
+tl_ob 9
+tl_otx ttotal
+tl_ob 9
+tl_ou get gst ktla
+tl_ob 9
+tl_oms get gst ktms
+tl_ob 10
+end
+
+fn main to int
+c = argcnt
+if or lt c 1 gt c 2
+tl_die 2 tusage
+end
+if eq c 2
+r = argread 1 ga 0 len ga
+if or le r 0 gt r 1
+tl_die 2 tusage
+end
+d = get ga 0
+if or lt d 49 gt d 56
+tl_die 2 tusage
+end
+put gst karg ulong sub d 48
+end
+tl_readin
+tl_scan
+put gst kln 0
+if eq get gst kblk 0
+if gt get gst krows 0
+tl_die 6 topen
+end
+tl_die 6 tnob
+end
+nh = tl_heads_n
+tl_emit nh
+if ne get gst kout 0
+tl_die 3 tcap
+end
+tl_oflush 1
+ret 0
+end
