@@ -60,7 +60,7 @@ fn ids(v: &Value, k: &str) -> Result<Vec<u32>, String> {
 /// What the lm_head byte count assumes, printed on the lm_head line of every report.
 fn lm_head_basis(exact_head: bool) -> &'static str {
     if exact_head {
-        "exact two-pass head: fp8b screen 1 B/weight + bf16 block scales, 4 f32 vocab vectors; candidate rows not counted"
+        "exact two-pass head: fp8b screen 1 B/weight + bf16 block scales, 5 f32 vocab vectors; candidate rows not counted"
     } else {
         "plain head: bf16 2 B/weight"
     }
@@ -69,13 +69,15 @@ fn lm_head_basis(exact_head: bool) -> &'static str {
 /// Bytes the lm_head launches read per token. The 35B uploads lm_head as bf16 (qwen38_omega/moe.rs).
 /// With the exact two-pass head on (HUM L314, the default unless `AIEN_Q36_EXACT_HEAD=0`) the final
 /// step reads the fp8b screen (1 B per weight plus one bf16 scale per 128 x 128 block), its XBOUND
-/// glue reads s and c and writes lo and hi (f32 [vocab] each), and the bf16 MASK gemv reads only the
-/// candidate rows (data dependent, a few rows of 4 KiB, left out). Off, the plain gemv reads the
-/// whole bf16 head (2 B per weight). From omega_gpu_q36_graph.c record_head_final.
+/// glue reads s and c and writes lo and hi (f32 [vocab] each), and the bf16 MASK gemv reads hi[r]
+/// for every row (f32 [vocab]) and runs the K loop only on the candidate rows (hi[r] >= tau; data
+/// dependent, a few rows of 4 KiB, not counted). Off, the plain gemv reads the whole bf16 head
+/// (2 B per weight). The logits write (f32 [vocab]) is left out on both branches, as for every
+/// gemv here. From omega_gpu_q36_graph.c record_head_final and omega_blackwell_codegen_bf16.h (MASK).
 fn lm_head_bytes(vocab: usize, hidden: usize, exact_head: bool) -> f64 {
     let (v, h) = (vocab as f64, hidden as f64);
     if exact_head {
-        v * h + (v / 128.0).ceil() * (h / 128.0).ceil() * 2.0 + 4.0 * v * 4.0
+        v * h + (v / 128.0).ceil() * (h / 128.0).ceil() * 2.0 + 5.0 * v * 4.0
     } else {
         v * h * 2.0
     }
@@ -102,6 +104,25 @@ fn kind_bytes(c: &Qwen38Config, kind: &str, pos: usize, exact_head: bool) -> f64
         "lm_head" => lm_head_bytes(c.vocab, c.hidden, exact_head),
         _ => 0.0,
     }
+}
+
+/// One stamped kind's bytes and its JSON row (`bytes_basis` on the lm_head row), both from the
+/// one exact-head flag.
+fn kind_row(
+    c: &Qwen38Config,
+    name: &str,
+    launches: u32,
+    ns: u64,
+    pos: usize,
+    exact_head: bool,
+) -> (f64, Value) {
+    let b = kind_bytes(c, name, pos, exact_head);
+    let mut row =
+        json!({"kind": name, "launches": launches, "ns": ns, "bytes": b, "byte_ns": b / BW * 1e9});
+    if name == "lm_head" {
+        row["bytes_basis"] = json!(lm_head_basis(exact_head));
+    }
+    (b, row)
 }
 
 fn run() -> Result<bool, String> {
@@ -226,14 +247,12 @@ fn run() -> Result<bool, String> {
             );
             let exact_head = m.exact_head_active();
             for (name, ns, n) in &per {
-                let b = kind_bytes(&c, name, pos, exact_head);
+                let (b, row) = kind_row(&c, name, *n, *ns, pos, exact_head);
                 byte_total += b;
                 let byte_us = b / BW * 1e6;
-                let basis = if name == "lm_head" {
-                    format!(" [{}]", lm_head_basis(exact_head))
-                } else {
-                    String::new()
-                };
+                let basis = row["bytes_basis"]
+                    .as_str()
+                    .map_or(String::new(), |s| format!(" [{s}]"));
                 eprintln!(
                     "  {name:>8}: {n:4} launches {:9.1} us ({:5.1}%), {:8.2} MB, byte time {:8.1} us, gap {:8.1} us, {:6.2} us/launch{basis}",
                     *ns as f64 / 1e3,
@@ -243,10 +262,6 @@ fn run() -> Result<bool, String> {
                     *ns as f64 / 1e3 - byte_us,
                     *ns as f64 / 1e3 / *n as f64
                 );
-                let mut row = json!({"kind": name, "launches": n, "ns": ns, "bytes": b, "byte_ns": b / BW * 1e9});
-                if name == "lm_head" {
-                    row["bytes_basis"] = json!(lm_head_basis(exact_head));
-                }
                 rows.push(row);
             }
             eprintln!(
@@ -317,17 +332,43 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::lm_head_bytes;
+    use super::{kind_row, lm_head_bytes};
+    use aien_inference_abi::qwen38::Qwen38Config;
+
+    /// The 35B's shape as far as kind_bytes reads it (config.json of qwen3.6-35b-a3b-fp8).
+    fn q36() -> Qwen38Config {
+        Qwen38Config {
+            hidden: 2048,
+            layers: 40,
+            vocab: 248_320,
+            intermediate: 0,
+            full_attention: (0..40).map(|l| l % 4 == 3).collect(),
+            heads: 16,
+            kv_heads: 2,
+            head_dim: 256,
+            rotary_dim: 64,
+            rope_theta: 1e7,
+            lin_k_heads: 16,
+            lin_v_heads: 32,
+            lin_k_dim: 128,
+            lin_v_dim: 128,
+            conv_kernel: 4,
+            eps: 1e-6,
+            eos_token_ids: vec![],
+            moe: None,
+        }
+    }
 
     // Qwen3.6-35B-A3B: vocab 248,320, hidden 2048 (config.json); lm_head.weight BF16 [248320, 2048],
     // 1,017,118,720 B in outside.safetensors.
     #[test]
     fn lm_head_counts_the_fp8b_screen_with_the_exact_head() {
         // 248320 * 2048 weights at 1 B + (248320/128) x (2048/128) = 1940 x 16 blocks at 2 B
-        // + s, c, lo, hi f32 [248320].
-        let exact = 248_320.0 * 2048.0 + 1940.0 * 16.0 * 2.0 + 4.0 * 248_320.0 * 4.0;
+        // + s, c, lo, hi (XBOUND) and hi again (MASK), f32 [248320].
+        let exact = 248_320.0 * 2048.0 + 1940.0 * 16.0 * 2.0 + 5.0 * 248_320.0 * 4.0;
         assert_eq!(lm_head_bytes(248_320, 2048, true), exact);
-        assert_eq!(exact, 508_559_360.0 + 62_080.0 + 3_973_120.0);
+        assert_eq!(exact, 508_559_360.0 + 62_080.0 + 4_966_400.0);
+        assert_eq!(exact, 513_587_840.0);
     }
 
     #[test]
@@ -338,5 +379,25 @@ mod tests {
             lm_head_bytes(248_320, 2048, false),
             lm_head_bytes(248_320, 2048, true)
         );
+    }
+
+    #[test]
+    fn the_stamped_lm_head_row_takes_bytes_and_basis_from_one_flag() {
+        let c = q36();
+        let (b, row) = kind_row(&c, "lm_head", 1, 0, 40, true);
+        assert_eq!(b, 513_587_840.0);
+        assert_eq!(row["bytes"], 513_587_840.0);
+        assert!(row["bytes_basis"]
+            .as_str()
+            .unwrap()
+            .starts_with("exact two-pass head"));
+        let (b, row) = kind_row(&c, "lm_head", 1, 0, 40, false);
+        assert_eq!(b, 1_017_118_720.0);
+        assert_eq!(row["bytes"], 1_017_118_720.0);
+        assert_eq!(row["bytes_basis"], "plain head: bf16 2 B/weight");
+        // Other kinds carry no basis and do not depend on the flag.
+        let (t, row) = kind_row(&c, "down", 40, 0, 40, true);
+        assert_eq!(t, kind_row(&c, "down", 40, 0, 40, false).0);
+        assert!(row.get("bytes_basis").is_none());
     }
 }

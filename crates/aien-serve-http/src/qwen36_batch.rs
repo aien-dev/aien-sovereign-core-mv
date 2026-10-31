@@ -17,8 +17,9 @@
 //! `step_rows` (aien-inference-abi `qwen38_omega/rows.rs`) runs L312's strokes: a beat that feeds
 //! two rows or more goes through one stroke graph in chunks of up to `MAX_HEADS` (8) rows, its head
 //! slots re-pointed at each chunk's row states; by default (batch v2) every layer is recorded for
-//! all heads at once, one weight read per layer, and the bf16 lm_head runs once per group of heads.
-//! A lone row, or a chunk of one, takes that row's own one-row graph with the exact two-pass head.
+//! all heads at once, one weight read per layer, and the bf16 lm_head runs once per group of up to
+//! 4 heads (`OMEGA_BF16_MAX_XBATCH`). A lone row, or a chunk of one, takes that row's own one-row
+//! graph with the exact two-pass head (greedy rows; rows that read logits take the plain head).
 //! `AIEN_Q36_STROKE_V2=0` keeps strokes on v1; `AIEN_Q36_STROKE=0` runs the rows' one-row graphs in
 //! turn (stage 1).
 //!
