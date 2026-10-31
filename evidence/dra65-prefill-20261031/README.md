@@ -79,8 +79,23 @@ missing usage INCONCLUSIVE rc 2; no `SPARK_WINDOW` NOT_RUN rc 3. Every `golden.j
 receipt carried `window: w-test-2` and the binary sha. `run` guard, with `DRA65_TEST_LOCK` pointing at a scratch
 lock (it never reaches the chip): no `SPARK_WINDOW` rc 3; lock held by another process rc 3 ("held by another
 process"); `DRA65_LOCKED` spoofed without holding the lock rc 3 ("held by pid(s) ..., none an ancestor"); lock
-free: taken, its flock(1) holder found among the script's ancestors, then rc 3 as the test lock demands. The
-part past the guard (lease, listener and chip checks, server start, step loop) is NOT_RUN on host.
+free: taken, its flock(1) holder found among the script's ancestors, then rc 3 as the test lock demands.
+
+`run` end to end on host (review Rev862b; `nice -n 19 taskset -c 0-9 bash
+evidence/dra65-prefill-20261031/hosttest/runtests.sh`, scratch lock under `/tmp/dra65-hosttest`,
+`DRA65_TEST_PORT=18978`, BIN = `hosttest/fake-serve.sh`, a shell mock door that execs `hosttest/mock2.py`; test
+mode (`DRA65_TEST_LOCK`) refuses an ELF BIN and skips the chip, model and live-port checks; board lines go to
+`OUT/board.log`). L1 `run BIN OUT 1 2 3 4 5` started
+under `taskset -c 5`: rc 0, steps 1-2 red PASS (35/36 same), steps 3-5 green PASS (36/36); every server pid ==
+its sid, 0 fds on the lock, `Cpus_allowed_list 0-9`; turn 2 matched `reuse Snapshot(2479) (2479 tok)`; lock free
+and no process left after. Green step 4 alone on that OUT: rc 0 (reds from step receipts). `4 1 2` on an empty
+OUT: NOT_RUN rc 3. Golden receipts without step receipts: `run 4` NOT_RUN rc 3, the probe itself refused rc 2.
+Green probe without `DRA65_SERVER_LOG`: turn 2 NO_SNAP, FAIL rc 1; door that never logs the restore: FAIL rc 1.
+Lease 45 s with a 30 s/request door: step INCONCLUSIVE rc 2 at 46 s ("probe stopped at the lease deadline"),
+`lease_expired: true`, lock free. `expired` created mid-step: INCONCLUSIVE rc 2. SIGKILL of the run shell
+mid-step: the watchdog TERMed the server group, server gone, lock free. TERM of the flock(1) holder: the
+watchdog stopped the server group and the run shell, lock free. Not host-testable: the real server, the
+nvidia-smi/model/18091 checks and the chip.
 
 Mutant 4 wiring (source, omega 474197e4f): `AIEN_Q36_TEST_MUTANT=4` -> `moe.rs` `graph_mutant()` ->
 `test_set_mutant` on the main graph and (`rows.rs` wire) every row and stroke graph; in C mutant 4 swaps K_CN for
@@ -98,18 +113,34 @@ exclusive --lease 20`), stops 18091 and Flint, and runs one lease's steps:
 `spark-window run bash evidence/dra65-prefill-20261031/window-dra65.sh run BIN OUT STEP ...`, BIN = the server
 binary built from this branch, OUT = one receipt root for every lease (step N writes `OUT/N/`). The 35B server's
 chip reservation (`crates/aien-serve-http/src/chip_reservation.rs` L88-95) accepts `/tmp/aien-gb10.lock` only
-when one of its ancestors holds it, and spark-window's holder never is; so the script takes `flock -n` on the
-lock itself (flock(1) holds it and runs the script as its child), checks in `/proc/locks` that the exclusive
-holder is its ancestor, and starts each server as its own child with `AIEN_GB10_LOCK_HELD=1`. Exit 3 (NOT_RUN,
-chip untouched): no `SPARK_WINDOW`; the lock held by anyone else; a listener on 18091, 18300, 18310 or the test
-port 18192; a compute app on the chip; BIN or the model missing; green steps without the red receipts in
-`OUT/1`, `OUT/2`; or the steps' estimates longer than the lease has left (`$SPARK_WINDOW_DIR/held` + `lease`).
+when one of its ancestors holds it, and spark-window's holder never is; so the script takes `flock -n -o` on the
+lock itself (flock(1) holds it and runs the script as its child; `-o` closes the fd before the exec, so no
+descendant inherits the lock), checks in `/proc/locks` that the exclusive holder is its ancestor, and starts each
+server as its own child, in its own session (`setsid`, pid file `OUT/.server.<run pid>.pid`), with
+`AIEN_GB10_LOCK_HELD=1` and the affinity reset of the live start scripts (`taskset -c` over every online CPU, so a
+core5/nice19 parent does not pin the 35B to one core; `nice` is inherited and cannot be lowered: do not start
+`run` under `nice`). Exit 3 (NOT_RUN, chip untouched): no `SPARK_WINDOW`; the lock held by anyone else; a listener
+on 18091, 18300, 18310 or the test port 18192; a compute app on the chip; BIN or the model missing; a green step
+(3-5) not preceded by both red steps in the same run and without their passing step receipts in `OUT/1`, `OUT/2`
+(rc 0, same bin_sha256, a lock holder, lease not expired); `$SPARK_WINDOW_DIR/expired` present; or the steps'
+estimates longer than the lease has left.
+
+Lease: deadline = `held` + `lease` x `SPARK_LEASE_UNIT_S` (default 60). The server wait (at most 300 s), each probe
+(`timeout` to the deadline) and every request (`curl -m` = min(1800 s, time left); none sent when no time is
+left) are bounded by it. A watchdog in its own session stops the server's process group (TERM, KILL after 20 s)
+and then the run shell at the deadline, or as soon as the run shell or the flock(1) holder dies (SIGKILL included);
+the run shell's exit ends flock(1), which releases the lock. A step that ends after the deadline or with
+`$SPARK_WINDOW_DIR/expired` present is INCONCLUSIVE rc 2, never PASS/RECORDED; a step that cannot fit its estimate
+in the time left is not started (NOT_RUN rc 3).
+
 Servers: the live `start-35b.sh` flags (`--max-context 131072`) for the single door, `start-35b-batch.sh`
 (`--max-context 49152 --batch-slots 8`) for the batch door, `--bind 127.0.0.1 --max-tokens-cap 16384 --thinking
 off AIEN_Q36_STROKE=0`, plus the step's env. Each step writes `OUT/N/step-receipt.json` (window id, binary path
-and sha256, door, env, est_s, server_ready_s, elapsed_s, rc, lock holder pid, the probe's receipt) beside the
-probe's own receipts; `run` stops at the first step that does not exit 0, and posts GPU-START/GPU-END lines on
-the board.
+and sha256, door, env, est_s, server_ready_s, elapsed_s, rc, verdict, why, lease_expired, deadline, lock holder
+pid, the probe's receipt) beside the probe's own receipts; `run` stops at the first step that does not exit 0, and
+posts GPU-START/GPU-END lines on the board. The turn2 case also needs the door's snapshot-restore line in that
+step's `server.log` for the turn2 request (single door `reuse Snapshot(` from `qwen38_engine.rs`, batch door
+`tok (snapshot, row` from `qwen36_batch.rs`); without it the case is NO_SNAP: FAIL for green, INCONCLUSIVE for red.
 
 Estimated durations (MODELED, upper bounds at max_tokens; `window-dra65.sh plan` prints them), with decode
 0.0201 s/token, chunked prompts 250 tok/s (8210 tokens at 196.8), stepped prompts 0.0201 s/token, +33 s start:
