@@ -61,6 +61,14 @@ pub enum FinishReason {
 }
 
 /// What the engine reports when `generate` returns.
+///
+/// The four `*_ns` fields (DRA-66) are durations on the host's monotonic clock, never mixed with
+/// a chip clock: `ttft_ns` from the door's entry (the request queued) to the first token handed
+/// out; `total_ns` from the first token handed out to the last; `chip_ns` the chip time of the
+/// steps between them (the graph's submit-to-marker spans, measured on the host clock, so they
+/// include the marker poll's wake-up); `host_overhead_ns = total_ns - chip_ns`, the host's share.
+/// Per decode token: divide by `emitted_tokens - 1`. An engine that cannot see its chip time
+/// reports `chip_ns` 0, so its overhead is its whole decode wall.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GenerateOutcome {
     /// Tokens handed to `on_token`.
@@ -71,6 +79,100 @@ pub struct GenerateOutcome {
     /// How the tokens were sampled, observed at each draw (OWN-8B stage S). `None` for an
     /// engine that does not sample (the stub replays a fixed list).
     pub sampling: Option<SamplingRecord>,
+    pub ttft_ns: u64,
+    pub total_ns: u64,
+    pub chip_ns: u64,
+    pub host_overhead_ns: u64,
+}
+
+/// Builds a reply's [`GenerateOutcome`] times on the host clock. A step's chip time is held
+/// until the token it produced is handed out ([`Self::emitted`]): the chip time before the first
+/// token (prefill, the prompt's last step) and that of a step whose token is never handed out (a
+/// stop token, a cancel) stay out of `chip_ns`, so `chip_ns` covers exactly the steps inside
+/// `total_ns`.
+#[derive(Debug, Clone)]
+pub struct ReplyClock {
+    start: Instant,
+    first: Option<Instant>,
+    last: Option<Instant>,
+    pending_chip_ns: u64,
+    chip_ns: u64,
+}
+
+/// [`ReplyClock::times`]: the four host-clock durations of a reply.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ReplyTimes {
+    pub ttft_ns: u64,
+    pub total_ns: u64,
+    pub chip_ns: u64,
+    pub host_overhead_ns: u64,
+}
+
+impl ReplyClock {
+    /// `start`: when the request reached the door.
+    pub fn new(start: Instant) -> Self {
+        Self {
+            start,
+            first: None,
+            last: None,
+            pending_chip_ns: 0,
+            chip_ns: 0,
+        }
+    }
+
+    /// A step ran for this reply and took `ns` of chip time.
+    pub fn chip(&mut self, ns: u64) {
+        self.pending_chip_ns += ns;
+    }
+
+    /// A token was handed out at `now`.
+    pub fn emitted(&mut self, now: Instant) {
+        if self.first.is_none() {
+            self.first = Some(now);
+        } else {
+            self.chip_ns += self.pending_chip_ns;
+        }
+        self.pending_chip_ns = 0;
+        self.last = Some(now);
+    }
+
+    pub fn times(&self) -> ReplyTimes {
+        let ns = |a: Instant, b: Instant| b.saturating_duration_since(a).as_nanos() as u64;
+        let (ttft_ns, total_ns) = match (self.first, self.last) {
+            (Some(f), Some(l)) => (ns(self.start, f), ns(f, l)),
+            _ => (0, 0),
+        };
+        ReplyTimes {
+            ttft_ns,
+            total_ns,
+            chip_ns: self.chip_ns,
+            host_overhead_ns: total_ns.saturating_sub(self.chip_ns),
+        }
+    }
+}
+
+impl GenerateOutcome {
+    /// An outcome with `times` filled in (the one way every engine sets them).
+    pub fn timed(
+        emitted_tokens: usize,
+        finish: FinishReason,
+        prefill_ms: u64,
+        decode_ms: u64,
+        sampling: Option<SamplingRecord>,
+        times: ReplyTimes,
+    ) -> Self {
+        Self {
+            emitted_tokens,
+            finish,
+            prefill_ms,
+            decode_ms,
+            sampling,
+            ttft_ns: times.ttft_ns,
+            total_ns: times.total_ns,
+            chip_ns: times.chip_ns,
+            host_overhead_ns: times.host_overhead_ns,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -171,13 +273,14 @@ pub trait Engine: Send + Sync {
             .enumerate()
             .map(|(i, j)| {
                 if stopped(j) {
-                    return Ok(GenerateOutcome {
-                        emitted_tokens: 0,
-                        finish: FinishReason::Cancelled,
-                        prefill_ms: 0,
-                        decode_ms: 0,
-                        sampling: None,
-                    });
+                    return Ok(GenerateOutcome::timed(
+                        0,
+                        FinishReason::Cancelled,
+                        0,
+                        0,
+                        None,
+                        ReplyTimes::default(),
+                    ));
                 }
                 self.generate_with_test(&j.prompt, &j.params, &j.test, &mut |t| {
                     on_token(i, t) && !stopped(j)
@@ -361,6 +464,7 @@ impl Engine for StubEngine {
             });
         }
         let t0 = Instant::now();
+        let mut clock = ReplyClock::new(t0);
         let mut emitted = 0usize;
         let mut finish = FinishReason::Stop;
         for &tok in &self.reply {
@@ -376,18 +480,20 @@ impl Engine for StubEngine {
                 std::thread::sleep(self.per_token_delay);
             }
             emitted += 1;
+            clock.emitted(Instant::now());
             if !on_token(tok) {
                 finish = FinishReason::Cancelled;
                 break;
             }
         }
-        Ok(GenerateOutcome {
-            emitted_tokens: emitted,
+        Ok(GenerateOutcome::timed(
+            emitted,
             finish,
-            prefill_ms: 0,
-            decode_ms: t0.elapsed().as_millis() as u64,
-            sampling: None,
-        })
+            0,
+            t0.elapsed().as_millis() as u64,
+            None,
+            clock.times(),
+        ))
     }
 }
 

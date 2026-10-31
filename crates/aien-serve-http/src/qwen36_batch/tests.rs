@@ -294,6 +294,33 @@ fn the_graphs_greedy_token_equals_the_host_argmax_path() {
     assert_eq!(concurrent(8, None, 16), want);
 }
 
+/// DRA-66: a reply's host-clock times add up (`host_overhead = total - chip`), and only the
+/// chip of steps between the first and last token handed out is counted.
+#[test]
+fn a_reply_reports_total_chip_and_host_overhead() {
+    let (d, _) = door(1, None, 1);
+    let (words, o) = run(&d, &[3, 1, 4, 1, 5], &greedy(12));
+    assert_eq!(words.len(), 12);
+    assert_eq!(o.emitted_tokens, 12);
+    assert!(o.ttft_ns > 0, "{o:?}");
+    assert!(o.total_ns > 0, "{o:?}");
+    assert_eq!(o.host_overhead_ns, o.total_ns - o.chip_ns, "{o:?}");
+    // The fake reports no chip time: the whole decode wall is the host's share.
+    assert_eq!(o.chip_ns, 0);
+    let t0 = Instant::now();
+    let mut c = crate::engine::ReplyClock::new(t0);
+    c.chip(7_000); // prefill: before the first token, not counted
+    c.emitted(t0 + Duration::from_micros(100));
+    c.chip(30_000);
+    c.emitted(t0 + Duration::from_micros(150));
+    c.chip(5_000); // a stop token's step: never handed out, not counted
+    let t = c.times();
+    assert_eq!(
+        (t.ttft_ns, t.total_ns, t.chip_ns, t.host_overhead_ns),
+        (100_000, 50_000, 30_000, 20_000)
+    );
+}
+
 // ---- the merge train's per-request switches (L384) ----
 
 /// The fake honors the switches as the chip does: a mutant changes the row's own words and no
@@ -871,13 +898,14 @@ fn a_reader_that_fell_behind_fails_even_when_its_done_fits() {
     });
     // The reader has taken both queued tokens: the job's last event fits now.
     drained_rx.recv().unwrap();
-    job.send(Ev::Done(GenerateOutcome {
-        emitted_tokens: 3,
-        finish: FinishReason::Cancelled,
-        prefill_ms: 0,
-        decode_ms: 0,
-        sampling: None,
-    }))
+    job.send(Ev::Done(GenerateOutcome::timed(
+        3,
+        FinishReason::Cancelled,
+        0,
+        0,
+        None,
+        crate::engine::ReplyTimes::default(),
+    )))
     .expect("Done fits after the drain");
     drop(job);
     let (mut r, got) = consumer.join().unwrap();
@@ -885,5 +913,448 @@ fn a_reader_that_fell_behind_fails_even_when_its_done_fits() {
     match r.pop().expect("one outcome") {
         Err(EngineError::Failed(m)) => assert!(m.contains("fell behind"), "{m}"),
         other => panic!("a truncated reply reported as {other:?}"),
+    }
+}
+
+/// The decode timeline over the fake: [`Fake`] plus the row timeline a chip graph gives, a fixed
+/// launch sequence (one layer and the exact head) with 100 ns chip stamps.
+struct StampFake {
+    inner: Fake,
+    on: bool,
+    asked: Arc<AtomicUsize>,
+    last: Vec<RowTimeline>,
+}
+
+const STAMP_KINDS: [&str; 21] = [
+    "norm", "mix", "ab", "gdn", "o_proj", "res", "router", "gate_up", "swiglu", "down", "gather",
+    "res", "norm", "lm_head", "lm_head", "lm_head", "argmax", "argmax", "lm_head", "argmax",
+    "argmax",
+];
+
+impl RowStep for StampFake {
+    type Snap = (u64, usize);
+    fn row_snapshot(&mut self, r: usize, snap: &mut (u64, usize)) -> Result<(), String> {
+        self.inner.row_snapshot(r, snap)
+    }
+    fn row_restore(&mut self, r: usize, snap: &(u64, usize)) -> Result<(), String> {
+        self.inner.row_restore(r, snap)
+    }
+    fn row_count(&self) -> usize {
+        self.inner.row_count()
+    }
+    fn row_reset(&mut self, r: usize) -> Result<(), String> {
+        self.inner.row_reset(r)
+    }
+    fn step_rows(&mut self, feed: &[RowFeed]) -> Result<Vec<RowOut>, String> {
+        if !self.on || feed.len() != 1 {
+            return self.inner.step_rows(feed);
+        }
+        let h0 = timeline_now_ns();
+        let h1 = timeline_now_ns();
+        std::thread::sleep(Duration::from_micros(50)); // the list build
+        let rec = timeline_now_ns() - h1;
+        // Submit and wait: the chip's 200 us, of which the device span covers n * 100 ns and the
+        // submit and marker poll the 20 us `chip_ns` holds besides (DRA-66 `submit_poll`).
+        std::thread::sleep(Duration::from_micros(200));
+        let mut outs = self.inner.step_rows(feed)?;
+        let total = timeline_now_ns() - h1;
+        let h2 = timeline_now_ns();
+        let h3 = timeline_now_ns();
+        let n = STAMP_KINDS.len();
+        let base = 7_000_000_000 + h1;
+        self.last[feed[0].row] = RowTimeline {
+            host: [h0, h1, h2, h3],
+            stamps: (0..=n as u64).map(|i| base + i * 100).collect(),
+            kinds: STAMP_KINDS.iter().map(|k| k.to_string()).collect(),
+        };
+        outs[0].stats = GraphStats {
+            launches: n as u32,
+            submits: 1,
+            chip_ns: n as u64 * 100 + 20_000,
+            record_ns: rec,
+            total_ns: total,
+            ..Default::default()
+        };
+        Ok(outs)
+    }
+    fn set_row_stamps(&mut self, on: bool) -> Result<(), String> {
+        self.asked.fetch_add(1, Ordering::SeqCst);
+        self.on = on;
+        Ok(())
+    }
+    fn row_timeline(&self, r: usize) -> Result<RowTimeline, String> {
+        self.asked.fetch_add(1, Ordering::SeqCst);
+        Ok(self.last[r].clone())
+    }
+}
+
+fn stamp_fake(rows: usize) -> (StampFake, Arc<AtomicUsize>) {
+    let (inner, _) = Fake::new(rows, None);
+    let asked = Arc::new(AtomicUsize::new(0));
+    (
+        StampFake {
+            inner,
+            on: false,
+            asked: Arc::clone(&asked),
+            last: vec![RowTimeline::default(); rows],
+        },
+        asked,
+    )
+}
+
+/// Waits for the scheduler's idle flush: `n` lines in `path`.
+fn timeline_lines(path: &Path, n: usize) -> String {
+    for _ in 0..200 {
+        let t = std::fs::read_to_string(path).unwrap_or_default();
+        if t.lines().count() >= n {
+            return t;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    std::fs::read_to_string(path).unwrap_or_default()
+}
+
+/// Every decode beat of one conversation is one complete, gap-free record; the words are the
+/// request alone's; dropping one record, one host phase or one launch turns the checker red.
+#[test]
+fn decode_timeline_records_every_single_row_beat() {
+    let path = lock_file().with_extension("timeline.jsonl");
+    let (f, asked) = stamp_fake(1);
+    let d = Qwen36BatchDoor::with_stepper_timeline(
+        f,
+        4096,
+        lock_file(),
+        Duration::from_secs(5),
+        1,
+        true,
+        Some((path.clone(), Kind::Launch)),
+    )
+    .unwrap();
+    let prompt: Vec<u32> = (0..5).map(|k| (k * 13 + 1) % VOCAB as u32).collect();
+    let (words, _) = run(&d, &prompt, &greedy(20));
+    assert_eq!(words, alone(&prompt, 20), "the timeline changed the words");
+    // 20 tokens: the first from the prompt's last step, then 19 decode steps.
+    let text = timeline_lines(&path, 19);
+    let recs = crate::decode_timeline::read_jsonl(&text).unwrap();
+    assert_eq!(recs.len(), 19, "{text}");
+    assert_eq!(crate::decode_timeline::check(&recs), Vec::<String>::new());
+    for w in recs.windows(2) {
+        assert_eq!(w[1].beat, w[0].beat + 1);
+        assert_eq!(w[1].step, w[0].step + 1);
+    }
+    assert!(asked.load(Ordering::SeqCst) >= 20);
+    let mut no_rec = recs.clone();
+    no_rec.remove(7);
+    assert!(!crate::decode_timeline::check(&no_rec).is_empty());
+    let mut no_host = recs.clone();
+    no_host[3].host.remove(4);
+    assert!(!crate::decode_timeline::check(&no_host).is_empty());
+    let mut no_dev = recs.clone();
+    no_dev[11].dev.remove(9);
+    assert!(!crate::decode_timeline::check(&no_dev).is_empty());
+    let s = crate::decode_timeline::summary(&recs);
+    assert!(s.contains("\"dev:head_recheck\" -> {100, "), "{s}");
+    assert!(s.contains("\"submit_poll\" -> {20000, "), "{s}");
+    assert!(s.ends_with(crate::decode_timeline::GATE_WL), "{s}");
+    // `AIEN_Q36_DECODE_TIMELINE_KEEP=<file>`: keep this host run for the checker CLI.
+    if let Some(keep) = std::env::var_os("AIEN_Q36_DECODE_TIMELINE_KEEP") {
+        std::fs::copy(&path, keep).unwrap();
+    }
+    let _ = std::fs::remove_file(&path);
+}
+
+/// Switched off (the default), the door never asks the stepper for stamps or a timeline.
+#[test]
+fn decode_timeline_off_never_asks() {
+    let (f, asked) = stamp_fake(2);
+    let d = Qwen36BatchDoor::with_stepper(f, 4096, lock_file(), Duration::from_secs(5), 1, true)
+        .unwrap();
+    let prompt = [3u32, 1, 4, 1, 5];
+    let (words, _) = run(&d, &prompt, &greedy(10));
+    assert_eq!(words, alone(&prompt, 10));
+    assert_eq!(asked.load(Ordering::SeqCst), 0);
+}
+
+/// A stepper without a timeline refuses a switched-on door instead of recording nothing.
+#[test]
+fn decode_timeline_refused_without_stamps() {
+    let (f, _) = Fake::new(1, None);
+    let path = lock_file().with_extension("refused.jsonl");
+    let r = Qwen36BatchDoor::with_stepper_timeline(
+        f,
+        4096,
+        lock_file(),
+        Duration::from_secs(5),
+        1,
+        true,
+        Some((path.clone(), Kind::Launch)),
+    );
+    assert!(r.is_err());
+    assert!(!path.exists());
+}
+
+/// A [`Fake`] that times every step as a graph would report it (list build, then the step as
+/// "chip"), and with `flat` scales the logits into [0, 2] so a sampled draw has real choices.
+struct ChipFake {
+    inner: Fake,
+    flat: bool,
+}
+
+impl RowStep for ChipFake {
+    type Snap = (u64, usize);
+    fn row_snapshot(&mut self, r: usize, snap: &mut (u64, usize)) -> Result<(), String> {
+        self.inner.row_snapshot(r, snap)
+    }
+    fn row_restore(&mut self, r: usize, snap: &(u64, usize)) -> Result<(), String> {
+        self.inner.row_restore(r, snap)
+    }
+    fn row_count(&self) -> usize {
+        self.inner.row_count()
+    }
+    fn row_reset(&mut self, r: usize) -> Result<(), String> {
+        self.inner.row_reset(r)
+    }
+    fn step_rows(&mut self, feed: &[RowFeed]) -> Result<Vec<RowOut>, String> {
+        let t0 = Instant::now();
+        std::thread::sleep(Duration::from_micros(40)); // the list build
+        let record_ns = t0.elapsed().as_nanos() as u64;
+        let c0 = Instant::now();
+        let mut outs = self.inner.step_rows(feed)?;
+        let chip_ns = c0.elapsed().as_nanos() as u64;
+        outs[0].stats = GraphStats {
+            launches: STAMP_KINDS.len() as u32,
+            submits: 1,
+            chip_ns,
+            record_ns,
+            total_ns: t0.elapsed().as_nanos() as u64,
+            ..Default::default()
+        };
+        if self.flat {
+            for l in outs.iter_mut().filter_map(|o| o.logits.as_mut()) {
+                l.iter_mut().for_each(|x| *x /= 500_000.0);
+            }
+        }
+        Ok(outs)
+    }
+}
+
+fn chip_door(rows: usize, flat: bool, receipt: Option<&Path>) -> Qwen36BatchDoor {
+    let (inner, _) = Fake::new(rows, None);
+    Qwen36BatchDoor::with_stepper_timeline(
+        ChipFake { inner, flat },
+        4096,
+        lock_file(),
+        Duration::from_secs(5),
+        1,
+        true,
+        receipt.map(|p| (p.to_path_buf(), Kind::Token)),
+    )
+    .unwrap()
+}
+
+/// The receipt's lines once the door has gone idle (the count stops changing).
+fn settled_lines(path: &Path) -> String {
+    let mut last = String::new();
+    for _ in 0..100 {
+        std::thread::sleep(Duration::from_millis(30));
+        let t = std::fs::read_to_string(path).unwrap_or_default();
+        if !t.is_empty() && t == last {
+            return t;
+        }
+        last = t;
+    }
+    last
+}
+
+/// DRA-66: the per-token receipt at 1 and then 8 conversations: the words are each request's
+/// alone, every decoding beat is one green record, both 1-row and 8-row clean beats appear, the
+/// replies' host overhead is total minus chip, and dropping a record turns the checker (library
+/// and CLI) red.
+#[test]
+fn token_receipt_at_one_and_eight_conversations() {
+    let path = lock_file().with_extension("tokens.jsonl");
+    let d = Arc::new(chip_door(8, false, Some(&path)));
+    let solo: Vec<u32> = (0..5).map(|k| (k * 13 + 1) % VOCAB as u32).collect();
+    let (words, o) = run(&d, &solo, &greedy(20));
+    assert_eq!(words, alone(&solo, 20));
+    assert!(o.chip_ns > 0 && o.chip_ns <= o.total_ns, "{o:?}");
+    assert_eq!(o.host_overhead_ns, o.total_ns - o.chip_ns);
+    let one = settled_lines(&path);
+    let hs: Vec<_> = (0..8u32)
+        .map(|i| {
+            let d = Arc::clone(&d);
+            let p: Vec<u32> = (0..5)
+                .map(|k| (k * 7 + i * 19 + 2) % VOCAB as u32)
+                .collect();
+            std::thread::spawn(move || (run(&d, &p, &greedy(30)).0, p))
+        })
+        .collect();
+    for h in hs {
+        let (w, p) = h.join().unwrap();
+        assert_eq!(w, alone(&p, 30));
+    }
+    let text = settled_lines(&path);
+    let recs: Vec<crate::decode_timeline::TokenRecord> =
+        crate::decode_timeline::read_jsonl_as(&text).unwrap();
+    // 20 tokens alone: the first from the prompt's last step, then 19 decoding beats.
+    assert_eq!(one.lines().count(), 19, "{one}");
+    assert_eq!(
+        crate::decode_timeline::check_tokens(&recs),
+        Vec::<String>::new()
+    );
+    let clean = |k: u64| {
+        recs.iter()
+            .filter(|r| r.rows == k && r.prompt_rows == 0)
+            .count()
+    };
+    // The solo reply's 19 beats come first, each one clean row.
+    assert!(
+        recs[..19].iter().all(|r| r.rows == 1 && r.prompt_rows == 0),
+        "{text}"
+    );
+    assert!(clean(8) >= 10, "{text}");
+    assert!(recs
+        .iter()
+        .all(|r| r.chip_ns > 0 && r.host_overhead_ns < r.total_ns));
+    let mut no_rec = recs.clone();
+    no_rec.remove(5);
+    assert!(!crate::decode_timeline::check_tokens(&no_rec).is_empty());
+    let mut bent = recs.clone();
+    bent[2].chip_ns += 1;
+    assert!(!crate::decode_timeline::check_tokens(&bent).is_empty());
+    let s = crate::decode_timeline::summary_tokens(&recs);
+    assert!(s.contains("\"host_overhead_ns\" -> {"), "{s}");
+    let p = path.to_string_lossy().into_owned();
+    let drop = |d: &str| crate::decode_timeline::run_check(&[p.clone(), "--drop".into(), d.into()]);
+    assert_eq!(drop("0:record:0"), 1, "the negative control must go red");
+    assert_eq!(crate::decode_timeline::run_check(&[p.clone()]), 0);
+    // `AIEN_Q36_TOKEN_RECEIPT_KEEP=<file>`: keep this host run for the checker CLI.
+    if let Some(keep) = std::env::var_os("AIEN_Q36_TOKEN_RECEIPT_KEEP") {
+        std::fs::copy(&path, keep).unwrap();
+    }
+    let _ = std::fs::remove_file(&path);
+}
+
+fn sampled(seed: u64, n: usize) -> GenerateParams {
+    GenerateParams {
+        temperature: 0.7,
+        seed,
+        ..greedy(n)
+    }
+}
+
+/// The door's words for `seed` at T=0.7, alone and beside seven other seeded requests.
+fn seeded_words(params: impl Fn(u64) -> GenerateParams) -> (Vec<Vec<u32>>, Vec<u32>) {
+    let prompt = [5u32, 9, 2, 6, 5];
+    let alone: Vec<Vec<u32>> = [1u64, 2, 3, 1]
+        .iter()
+        .map(|&s| run(&chip_door(1, true, None), &prompt, &params(s)).0)
+        .collect();
+    let d = Arc::new(chip_door(8, true, None));
+    let hs: Vec<_> = (1..=8u64)
+        .map(|s| {
+            let (d, p) = (Arc::clone(&d), params(s));
+            std::thread::spawn(move || run(&d, &prompt, &p).0)
+        })
+        .collect();
+    let beside = hs
+        .into_iter()
+        .map(|h| h.join().unwrap())
+        .collect::<Vec<_>>();
+    (alone, beside[0].clone())
+}
+
+/// What the honest door must show at T=0.7: three seeds give three different replies, a seed
+/// repeats its reply, and seed 1 beside seven other requests says what it says alone.
+fn seeds_hold(alone: &[Vec<u32>], beside: &[u32]) -> bool {
+    let spread = alone[0] != alone[1] && alone[1] != alone[2] && alone[0] != alone[2];
+    spread && alone[0] == alone[3] && alone[0] == beside
+}
+
+/// DRA-66 seed regression at T=0.7 through the batch door. The negative controls run first:
+/// the two sampling mutants' effects (`ignore-seed`: every request on seed 0; `force-greedy`:
+/// argmax at any temperature) applied to the requests must turn the check red, then the honest
+/// run must be green. The process mutant is installed as the server does, so a debug-build run
+/// with `AIEN_SAMPLING_MUTANT=ignore-seed` or `force-greedy` turns the honest leg itself red.
+#[test]
+fn seeds_spread_at_t07_through_the_batch_door() {
+    crate::sampling::install_mutant_from_env().unwrap();
+    let ignore_seed = seeded_words(|_| sampled(0, 24));
+    assert!(
+        !seeds_hold(&ignore_seed.0, &ignore_seed.1),
+        "ignore-seed must be red"
+    );
+    let force_greedy = seeded_words(|s| GenerateParams {
+        temperature: 0.0,
+        ..sampled(s, 24)
+    });
+    assert!(
+        !seeds_hold(&force_greedy.0, &force_greedy.1),
+        "force-greedy must be red"
+    );
+    let honest = seeded_words(|s| sampled(s, 24));
+    assert!(seeds_hold(&honest.0, &honest.1), "{honest:?}");
+    assert!(honest.0.iter().all(|w| w.len() == 24));
+}
+
+/// A stepper that never returns logits, even when a feed asks for them.
+struct NoLogits(Vec<u64>);
+
+impl RowStep for NoLogits {
+    type Snap = u64;
+    fn row_snapshot(&mut self, r: usize, snap: &mut u64) -> Result<(), String> {
+        *snap = self.0[r];
+        Ok(())
+    }
+    fn row_restore(&mut self, r: usize, snap: &u64) -> Result<(), String> {
+        self.0[r] = *snap;
+        Ok(())
+    }
+    fn row_count(&self) -> usize {
+        self.0.len()
+    }
+    fn row_reset(&mut self, r: usize) -> Result<(), String> {
+        self.0[r] = 0;
+        Ok(())
+    }
+    fn step_rows(&mut self, feed: &[RowFeed]) -> Result<Vec<RowOut>, String> {
+        Ok(feed
+            .iter()
+            .map(|f| {
+                self.0[f.row] = mix(self.0[f.row] ^ u64::from(f.token));
+                RowOut {
+                    token: (self.0[f.row] % 89) as u32 + 5,
+                    logits: None,
+                    stats: GraphStats::default(),
+                }
+            })
+            .collect())
+    }
+}
+
+/// The prompt's last feed asks for logits; a stepper that returns none fails the request with a
+/// clear error instead of leaving it waiting forever (the door used to hang here).
+#[test]
+fn missing_logits_fail_the_request() {
+    for chip_greedy in [true, false] {
+        let d = Qwen36BatchDoor::with_stepper(
+            NoLogits(vec![0; 2]),
+            4096,
+            lock_file(),
+            Duration::from_secs(5),
+            4,
+            chip_greedy,
+        )
+        .unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let r = d.generate(&[3, 1, 4, 1, 5], &greedy(8), &mut |_| true);
+            let _ = tx.send(r.map(|_| ()).map_err(|e| format!("{e:?}")));
+        });
+        let r = rx
+            .recv_timeout(Duration::from_secs(20))
+            .expect("the door hung on a step without the logits it asked for");
+        let e = r.expect_err("a step without asked-for logits must fail the request");
+        assert!(e.contains("no logits"), "error names the cause: {e}");
     }
 }

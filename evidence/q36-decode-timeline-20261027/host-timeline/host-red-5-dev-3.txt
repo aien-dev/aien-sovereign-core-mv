@@ -1,0 +1,6 @@
+negative control: dropped 5:dev:3
+RED: record 5 (beat 11): dev 2 ab ends at 7004773096, o_proj starts at 7004773196
+RED: record 5 (beat 11): 20 device spans for 21 launches
+RED: record 5 (beat 11): launch-kind census differs from record 0
+decode timeline RED: 3 findings over 19 records, host-timeline.jsonl
+drop 5:dev:3 exit 1

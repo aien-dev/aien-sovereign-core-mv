@@ -29,7 +29,9 @@ use std::time::{Duration, Instant};
 use aien_inference_abi::qwen38::Qwen38Config;
 use aien_inference_abi::qwen38_omega::{need_bytes, Qwen38Omega, Qwen38Session, Reuse};
 
-use crate::engine::{Engine, EngineError, FinishReason, GenerateOutcome, GenerateParams};
+use crate::engine::{
+    Engine, EngineError, FinishReason, GenerateOutcome, GenerateParams, ReplyClock,
+};
 use crate::omega_engine::{GpuLock, GPU_LOCK_PATH};
 use crate::sampling::SamplingObserver;
 
@@ -223,6 +225,7 @@ impl Engine for Qwen38Door {
             });
         }
         let t_lock = Instant::now();
+        let mut clock = ReplyClock::new(t_lock);
         let lock = GpuLock::acquire_queued_at(&self.lock_path, self.lock_wait)
             .map_err(EngineError::Busy)?;
         let lock_wait_ms = t_lock.elapsed().as_millis();
@@ -244,7 +247,7 @@ impl Engine for Qwen38Door {
         let chip_greedy =
             observer.is_greedy() && std::env::var(CHIP_GREEDY_ENV).as_deref() != Ok("0");
         let mut chip_next: Option<u32> = None;
-        let (mut emitted, mut chip_ns) = (0usize, 0u64);
+        let mut emitted = 0usize;
         let finish = loop {
             if emitted >= p.max_new_tokens || prompt.len() + emitted >= self.max_context {
                 break FinishReason::Length;
@@ -260,6 +263,7 @@ impl Engine for Qwen38Door {
                 break FinishReason::Stop;
             }
             emitted += 1;
+            clock.emitted(Instant::now());
             if !on_token(tok) {
                 break FinishReason::Cancelled;
             }
@@ -270,21 +274,22 @@ impl Engine for Qwen38Door {
             if chip_greedy {
                 let (next, ns) = s.advance_greedy(tok).map_err(EngineError::Failed)?;
                 chip_next = Some(next);
-                chip_ns += ns;
+                clock.chip(ns);
             } else {
                 let (next, ns) = s.advance(tok).map_err(EngineError::Failed)?;
                 logits = next;
-                chip_ns += ns;
+                clock.chip(ns);
             }
         };
         let decode_ms = t1.elapsed().as_millis() as u64;
+        let times = clock.times();
         let steps = emitted.saturating_sub(1).max(1) as f64;
         let reused = fs.reuse.map_or(0, Reuse::tokens);
         drop(s);
         drop(lock);
         let pf = &fs.prefill;
         eprintln!(
-            "aien-serve-http: qwen38: lock wait {lock_wait_ms} ms, prompt {} tok, reuse {:?} ({reused} tok), fed {} ({} stepped), prefill {prefill_ms} ms (gemm chip {} ms, gdn chip {} ms, attn chip {} ms, host {} ms, restore {} ms, snapshot {} ms), decode {emitted} tok in {decode_ms} ms, graph chip {:.1} ms/token, wall {:.1} ms/token, chip greedy {chip_greedy}",
+            "aien-serve-http: qwen38: lock wait {lock_wait_ms} ms, prompt {} tok, reuse {:?} ({reused} tok), fed {} ({} stepped), prefill {prefill_ms} ms (gemm chip {} ms, gdn chip {} ms, attn chip {} ms, host {} ms, restore {} ms, snapshot {} ms), decode {emitted} tok in {decode_ms} ms, ttft {:.3} ms, per token: total {:.3} ms, chip {:.3} ms, host overhead {:.3} ms, chip greedy {chip_greedy}",
             prompt.len(),
             fs.reuse.unwrap_or(Reuse::Cold),
             fs.fed,
@@ -295,16 +300,19 @@ impl Engine for Qwen38Door {
             pf.host_ns / 1_000_000,
             fs.restore_ns / 1_000_000,
             fs.snapshot_ns / 1_000_000,
-            chip_ns as f64 / 1e6 / steps,
-            decode_ms as f64 / steps,
+            times.ttft_ns as f64 / 1e6,
+            times.total_ns as f64 / 1e6 / steps,
+            times.chip_ns as f64 / 1e6 / steps,
+            times.host_overhead_ns as f64 / 1e6 / steps,
         );
-        Ok(GenerateOutcome {
-            emitted_tokens: emitted,
+        Ok(GenerateOutcome::timed(
+            emitted,
             finish,
             prefill_ms,
             decode_ms,
-            sampling: Some(observer.record()),
-        })
+            Some(observer.record()),
+            times,
+        ))
     }
 }
 

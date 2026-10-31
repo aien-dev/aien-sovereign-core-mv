@@ -1,0 +1,62 @@
+$ aien-serve-http --check-decode-timeline evidence/dra-66-host-time-20261031/host-token-receipt.jsonl --bend 3:chip
+negative control: bent 3:chip (chip_ns + 1, host_overhead_ns kept)
+RED: record 3 (beat 9): host_overhead 134209 for total 491411 chip 357203
+token receipt RED: 1 findings over 49 records, evidence/dra-66-host-time-20261031/host-token-receipt.jsonl
+exit 1
+$ aien-serve-http --check-decode-timeline evidence/dra-66-host-time-20261031/host-token-receipt.jsonl
+token receipt GREEN: 49 records, evidence/dra-66-host-time-20261031/host-token-receipt.jsonl; summary over records 0..49
+exit 0
+$ aien-serve-http --check-decode-timeline evidence/dra-66-host-time-20261031/host-token-receipt.jsonl --slice 0:19
+token receipt GREEN: 49 records, evidence/dra-66-host-time-20261031/host-token-receipt.jsonl; summary over records 0..19
+exit 0
+$ aien-serve-http --check-decode-timeline evidence/dra-66-host-time-20261031/host-token-receipt.jsonl --bend host:600000 --slice 0:19
+synthetic receipt: bent host:600000 (every beat 600000 ns more host time)
+token receipt GREEN: 49 records, evidence/dra-66-host-time-20261031/host-token-receipt.jsonl; summary over records 0..19
+exit 0
+$ aien-serve-http --check-decode-timeline evidence/dra-66-host-time-20261031/host-stamps.jsonl --drop 0:record:0
+negative control: dropped 0:record:0
+RED: record 0 (beat 7): seq 1 where 0 belongs (a record is missing or repeated)
+RED: record 1 (beat 8): seq 2 where 1 belongs (a record is missing or repeated)
+RED: record 2 (beat 9): seq 3 where 2 belongs (a record is missing or repeated)
+RED: record 3 (beat 10): seq 4 where 3 belongs (a record is missing or repeated)
+RED: record 4 (beat 11): seq 5 where 4 belongs (a record is missing or repeated)
+RED: record 5 (beat 12): seq 6 where 5 belongs (a record is missing or repeated)
+RED: record 6 (beat 13): seq 7 where 6 belongs (a record is missing or repeated)
+RED: record 7 (beat 14): seq 8 where 7 belongs (a record is missing or repeated)
+RED: record 8 (beat 15): seq 9 where 8 belongs (a record is missing or repeated)
+RED: record 9 (beat 16): seq 10 where 9 belongs (a record is missing or repeated)
+RED: record 10 (beat 17): seq 11 where 10 belongs (a record is missing or repeated)
+RED: record 11 (beat 18): seq 12 where 11 belongs (a record is missing or repeated)
+RED: record 12 (beat 19): seq 13 where 12 belongs (a record is missing or repeated)
+RED: record 13 (beat 20): seq 14 where 13 belongs (a record is missing or repeated)
+RED: record 14 (beat 21): seq 15 where 14 belongs (a record is missing or repeated)
+RED: record 15 (beat 22): seq 16 where 15 belongs (a record is missing or repeated)
+RED: record 16 (beat 23): seq 17 where 16 belongs (a record is missing or repeated)
+RED: record 17 (beat 24): seq 18 where 17 belongs (a record is missing or repeated)
+decode timeline RED: 18 findings over 18 records, evidence/dra-66-host-time-20261031/host-stamps.jsonl
+exit 1
+$ aien-serve-http --check-decode-timeline evidence/dra-66-host-time-20261031/host-stamps.jsonl
+decode timeline GREEN: 19 records, evidence/dra-66-host-time-20261031/host-stamps.jsonl
+exit 0
+$ aien-serve-http --check-decode-timeline evidence/dra-66-host-time-20261031/host-stamps.jsonl --bend 1:chip
+evidence/dra-66-host-time-20261031/host-stamps.jsonl: a launch timeline takes --drop only; usage: aien-serve-http --check-decode-timeline FILE [--drop REC:host|dev|record:IDX] [--bend REC:chip|host:NS] [--slice A:B] (--bend and --slice: token receipts)
+exit 2
+$ aien-serve-http --check-decode-timeline evidence/dra-66-host-time-20261031/host-token-receipt.jsonl --slice 5:5
+--slice 5:5: token receipt: --drop REC:record:0 (REC below the last record), --bend REC:chip | host:NS, --slice A:B (0 <= A < B <= records)
+exit 2
+$ aien-serve-http --check-decode-timeline evidence/dra-66-host-time-20261031/host-token-receipt.jsonl --bend 3:chip --bend 4:chip
+--bend given twice; usage: aien-serve-http --check-decode-timeline FILE [--drop REC:host|dev|record:IDX] [--bend REC:chip|host:NS] [--slice A:B] (--bend and --slice: token receipts)
+exit 2
+lock parse: flock pid 3489990, dev 103:02 ino 320239
+  matching dev -> '3489990'
+  wrong dev 00:00 -> ''
+# mutant 'chip_ns absorbs the whole graph_submit_wait' (Rev863 MAJOR 1 shape), made by:
+# jq -c '.chip_ns = ([.host[] | select(.name == "graph_submit_wait") | .t1 - .t0][0])' host-stamps.jsonl > host-stamps-absorb.jsonl
+$ aien-serve-http --check-decode-timeline evidence/dra-66-host-time-20261031/host-stamps-absorb.jsonl
+decode timeline GREEN: 19 records, evidence/dra-66-host-time-20261031/host-stamps-absorb.jsonl
+exit 0
+# Wolfram MCP evaluator, each file evaluated whole; last result = GATE_WL
+# {N[hostLB/10^6], N[submitPoll/10^6], N[(hostLB+submitPoll)/10^6], hostLB + submitPoll <= 500000}
+host-gate-red.wl    (token slice 0..19 bent host:600000 + host stamps) -> {0.715041, 0.02, 0.735041, False}
+host-gate-absorb.wl (token slice 0..19 + stamps with chip_ns = graph_submit_wait) -> {0.115041, 0.628145, 0.743186, False}
+host-gate.wl        (token slice 0..19 + host stamps)                  -> {0.115041, 0.02, 0.135041, True}

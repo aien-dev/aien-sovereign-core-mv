@@ -1,0 +1,11 @@
+== AIEN_SAMPLING_MUTANT=ignore-seed (debug build)
+test qwen36_batch::tests::seeds_spread_at_t07_through_the_batch_door ... FAILED
+thread 'qwen36_batch::tests::seeds_spread_at_t07_through_the_batch_door' (2494102) panicked at crates/aien-serve-http/src/qwen36_batch/tests.rs:1267:5:
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 88 filtered out; finished in 0.22s
+== AIEN_SAMPLING_MUTANT=force-greedy (debug build)
+test qwen36_batch::tests::seeds_spread_at_t07_through_the_batch_door ... FAILED
+thread 'qwen36_batch::tests::seeds_spread_at_t07_through_the_batch_door' (2494178) panicked at crates/aien-serve-http/src/qwen36_batch/tests.rs:1267:5:
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 88 filtered out; finished in 0.21s
+== AIEN_SAMPLING_MUTANT=<unset> (debug build)
+test qwen36_batch::tests::seeds_spread_at_t07_through_the_batch_door ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 88 filtered out; finished in 0.21s

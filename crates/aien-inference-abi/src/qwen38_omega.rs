@@ -47,7 +47,7 @@ mod moe;
 pub use moe::router_probe;
 mod prefill;
 mod rows;
-pub use rows::{RowFeed, RowOut, RowTest};
+pub use rows::{timeline_now_ns, RowFeed, RowOut, RowTest, RowTimeline};
 mod session;
 pub use prefill::PrefillStats;
 pub use session::{plan_reuse, FeedStats, Qwen38Session, Reuse, IM_START};
@@ -183,6 +183,9 @@ pub struct Qwen38Omega {
     row_src: Option<rows::RowSource>,
     /// Multi-row steps so far (the row-swap negative control counts them).
     row_steps: u64,
+    /// Chip stamps and host clock marks on every row's one-row graph ([`Self::set_row_stamps`],
+    /// the decode timeline). Off by default.
+    row_stamps: bool,
 }
 
 impl std::fmt::Debug for Qwen38Omega {
@@ -709,6 +712,7 @@ impl Qwen38Omega {
             rows: Vec::new(),
             row_src: None,
             row_steps: 0,
+            row_stamps: false,
         })
     }
 

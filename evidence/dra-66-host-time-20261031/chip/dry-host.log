@@ -1,0 +1,44 @@
+# DRA-66 slices, host dry path and negative controls (2026-10-31T13:56:39Z, spark-b87b, nice -n 19 taskset -c 0-9; no window, no lock, no GPU, no server)
+# lib sha256 e384f6988d43f2dc0ba55b868f36381f33b63f44b014968cbeaf22e608a9061e
+== DRY_RUN=1 bash s01-tokens.sh
+DRY s01-tokens: static checks passed (bin a33cc2abf545927b293316cca018ff81d492bacfdd8fb996dcc5dccdb02449e4, golden ec9040177d67a3f33b4d8800bc6656990952a8479052468814386d9081e6a664); receipts -> /home/drakestapleton/handoffs/pdra4-hive/receipts/DRA-66/s01-tokens; WAVE=0
+  would run: mutant4-red (cap 270 s)
+  would run: golden-identity (cap 240 s)
+  would run: receipt-1conv (cap 92 s)
+  would run: receipt-8conv (cap 62 s)
+  would run: seed-t07 (cap 60 s)
+  would run: check-tokens (cap 75 s)
+  caps + 90 s lock wait = 889 s of the 1140 s runner cap
+2026-10-31T13:56:39Z gate check-tokens: PASS (49 token records, slice 0..19; exits 0 1 1 1 0 0 (want 0 1 1 1 0 0: reds before the green slice))
+PASS s01-tokens: check-tokens=PASS; elapsed 0 s; receipt.json
+exit 0
+== DRY_RUN=1 bash s02-stamps.sh
+DRY s02-stamps: static checks passed (bin a33cc2abf545927b293316cca018ff81d492bacfdd8fb996dcc5dccdb02449e4, golden ec9040177d67a3f33b4d8800bc6656990952a8479052468814386d9081e6a664); receipts -> /home/drakestapleton/handoffs/pdra4-hive/receipts/DRA-66/s02-stamps; WAVE=0
+  would run: stamps-1conv (cap 242 s)
+  would run: check-stamps (cap 45 s)
+  caps + 90 s lock wait = 377 s of the 1140 s runner cap
+2026-10-31T13:56:39Z gate check-stamps: PASS (19 stamped records; exits 1 0 (want 1 0); gate-red.wl then gate.wl from /tmp/dra66-dry/s01-tokens (slice 0 19 49); Wolfram: gate-red.wl last result False first, then gate.wl)
+PASS s02-stamps: check-stamps=PASS; elapsed 0 s; receipt.json
+exit 0
+== dry gate files vs the committed host gate files (differ only in the fixture path of the first comment line)
+gate.wl: lines 2.. identical to ../host-gate.wl
+gate-red.wl: lines 2.. identical to ../host-gate-red.wl
+summary-1conv.wl: lines 2.. identical to ../host-summary-1conv.wl
+== N1 outside a window, real slice: NOT_RUN, exit 3, no VERDICT written
+NOT_RUN: not inside a spark-window; run by ~/handoffs/pdra4-hive/chip/run-queue.sh only
+exit 3
+  ls: cannot access '/home/drakestapleton/handoffs/pdra4-hive/receipts/DRA-66/s01-tokens/VERDICT': No such file or directory
+== N2 fake window (temp copy, receipts in /tmp/dra66-neg/rq): NOT_RUN exit 3 + VERDICT
+NOT_RUN: window fake-dra66 is not the open window holding its locks
+exit 3
+  VERDICT: NOT_RUN s01-tokens: window fake-dra66 is not the open window holding its locks
+== N3 inner part, chip lock not held by an ancestor (temp copy): preconditions NOT_RUN exit 3, no chip query
+NOT_RUN: /tmp/aien-gb10.lock held exclusively by pid(s) '', none an ancestor of 104049 ( 104049 222923 221570 221493 221067 6355 )
+2026-10-31T13:56:39Z gate preconditions: NOT_RUN (/tmp/aien-gb10.lock held exclusively by pid(s) '', none an ancestor of 104049 ( 104049 222923 221570 221493 221067 6355 ))
+NOT_RUN s01-tokens: preconditions=NOT_RUN; first non-PASS: preconditions NOT_RUN: /tmp/aien-gb10.lock held exclusively by pid(s) '', none an ancestor of 104049 ( 104049 222923 221570 221493 221067 6355 ); elapsed 0 s; receipt.json
+exit 3
+  files: VERDICT gate-preconditions.json receipt.json window.log 
+== N4 dry path, SHA_HEAD corrupted (temp copy): exit 3
+/home/drakestapleton/work/dra-66/bin-head/aien-serve-http sha256 is not 0000c2abf545927b293316cca018ff81d492bacfdd8fb996dcc5dccdb02449e4
+DRY s01-tokens: static checks FAILED
+exit 3

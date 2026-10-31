@@ -33,11 +33,13 @@ use std::time::{Duration, Instant};
 
 use aien_inference_abi::qwen38::Qwen38Config;
 use aien_inference_abi::qwen38_omega::{
-    need_bytes, Qwen38Omega, Qwen38Snapshot, RowFeed, RowOut, RowTest, IM_START,
+    need_bytes, Qwen38Omega, Qwen38Snapshot, RowFeed, RowOut, RowTest, RowTimeline, IM_START,
 };
 
+use crate::decode_timeline::{timeline_now_ns, BeatSums, Kind, Recorder};
 use crate::engine::{
-    Engine, EngineError, FinishReason, GenerateOutcome, GenerateParams, GroupJob, TestSwitches,
+    Engine, EngineError, FinishReason, GenerateOutcome, GenerateParams, GroupJob, ReplyClock,
+    TestSwitches,
 };
 use crate::omega_engine::{GpuLock, GPU_LOCK_PATH};
 use crate::qwen38_engine::{
@@ -66,6 +68,16 @@ fn env_usize(name: &str, default: usize) -> usize {
         }),
         Err(_) => default,
     }
+}
+
+/// The chip lock the live server takes at load and per busy spell. `AIEN_SERVE_GPU_LOCK` points
+/// it at a private file so a live server never waits behind test jobs on `/tmp/aien-gb10.lock`
+/// (coordinator 2026-10-21: serving has priority over chip tests). Added by 61cad330 on
+/// ship/motor-l387 and lost when the batch door moved its load under the lock on main.
+fn serve_lock_path() -> PathBuf {
+    std::env::var_os("AIEN_SERVE_GPU_LOCK")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(GPU_LOCK_PATH))
 }
 
 fn prompt_per_beat() -> Result<usize, String> {
@@ -151,6 +163,16 @@ pub trait RowStep: Send + 'static {
     fn row_snapshot(&mut self, r: usize, snap: &mut Self::Snap) -> Result<(), String>;
     /// Puts a copy back into row `r` (any row).
     fn row_restore(&mut self, r: usize, snap: &Self::Snap) -> Result<(), String>;
+    /// The decode timeline ([`crate::decode_timeline`]): per-launch chip stamps and host marks on
+    /// every row's one-row step. The default refuses, so a switched-on door fails at load rather
+    /// than recording nothing.
+    fn set_row_stamps(&mut self, _on: bool) -> Result<(), String> {
+        Err("this row stepper has no decode timeline".into())
+    }
+    /// Row `r`'s last one-row token as the timeline reads it.
+    fn row_timeline(&self, _r: usize) -> Result<RowTimeline, String> {
+        Err("this row stepper has no decode timeline".into())
+    }
 }
 
 impl RowStep for Qwen38Omega {
@@ -179,6 +201,13 @@ impl RowStep for Qwen38Omega {
     }
     fn row_restore(&mut self, r: usize, snap: &Qwen38Snapshot) -> Result<(), String> {
         Qwen38Omega::row_restore(self, r, snap)
+    }
+    fn set_row_stamps(&mut self, on: bool) -> Result<(), String> {
+        Qwen38Omega::set_row_stamps(self, on);
+        Ok(())
+    }
+    fn row_timeline(&self, r: usize) -> Result<RowTimeline, String> {
+        Qwen38Omega::row_timeline(self, r)
     }
 }
 
@@ -359,6 +388,11 @@ struct Active {
     /// The merge train's row swap still owed: at this decode step (from 1), at the first beat
     /// from it on with another conversation decoding, the two trade rows (negative control).
     swap_due: Option<u64>,
+    /// DRA-66: the reply's host-clock times (from `job.t_queued`); a decoding row is charged
+    /// the chip time of every step (prefill chunks included) in each beat it decoded in
+    /// (`decoded_beat`).
+    clock: ReplyClock,
+    decoded_beat: bool,
 }
 
 impl Active {
@@ -404,7 +438,7 @@ impl Qwen36BatchDoor {
         let keep = keep_free()?;
         let mut t0 = Instant::now();
         let (lock, mut model) = admit_then_open(
-            || GpuLock::acquire_queued_at(Path::new(GPU_LOCK_PATH), LOAD_LOCK_WAIT),
+            || GpuLock::acquire_queued_at(&serve_lock_path(), LOAD_LOCK_WAIT),
             mem_available,
             need,
             keep,
@@ -444,13 +478,16 @@ impl Qwen36BatchDoor {
             after >> 20,
             rss_bytes() as f64 / 1e9,
         );
-        let mut door = Self::with_stepper(
+        let mut door = Self::with_stepper_timeline(
             model,
             max_context,
-            PathBuf::from(GPU_LOCK_PATH),
+            serve_lock_path(),
             REQUEST_LOCK_WAIT,
             per_beat,
             std::env::var(CHIP_GREEDY_ENV).as_deref() != Ok("0"),
+            Recorder::path_from_env()
+                .map(|p| Kind::from_env().map(|k| (p, k)))
+                .transpose()?,
         )?;
         door.slot_bytes_measured = measured;
         door.slot_bytes_on_paper = on_paper;
@@ -467,10 +504,52 @@ impl Qwen36BatchDoor {
         prompt_per_beat: usize,
         chip_greedy: bool,
     ) -> Result<Self, String> {
+        Self::with_stepper_timeline(
+            model,
+            max_context,
+            lock_path,
+            lock_wait,
+            prompt_per_beat,
+            chip_greedy,
+            None,
+        )
+    }
+
+    /// [`Self::with_stepper`] with the decode timeline of `kind` written to `timeline`
+    /// ([`crate::decode_timeline`]; `None`: off). A [`Kind::Launch`] timeline turns the chip
+    /// stamps on, and a stepper that cannot stamp refuses the door; a [`Kind::Token`] receipt
+    /// leaves them off.
+    pub fn with_stepper_timeline<S: RowStep>(
+        mut model: S,
+        max_context: usize,
+        lock_path: PathBuf,
+        lock_wait: Duration,
+        prompt_per_beat: usize,
+        chip_greedy: bool,
+        timeline: Option<(PathBuf, Kind)>,
+    ) -> Result<Self, String> {
         let slots = model.row_count();
         if slots == 0 {
             return Err("qwen36-batch: no rows".into());
         }
+        let timeline = match timeline {
+            Some((p, Kind::Launch)) => {
+                model.set_row_stamps(true)?;
+                eprintln!(
+                    "aien-serve-http: qwen36-batch: decode timeline ON, writing {} (chip stamps on every one-row launch: not a speed run)",
+                    p.display()
+                );
+                Some(Recorder::open(&p, Kind::Launch)?)
+            }
+            Some((p, Kind::Token)) => {
+                eprintln!(
+                    "aien-serve-http: qwen36-batch: per-token receipt ON, writing {} (chip stamps off)",
+                    p.display()
+                );
+                Some(Recorder::open(&p, Kind::Token)?)
+            }
+            None => None,
+        };
         let (tx, rx) = mpsc::channel::<Vec<Job>>();
         let sched = Scheduler {
             model,
@@ -493,6 +572,7 @@ impl Qwen36BatchDoor {
             pf_min: env_usize("AIEN_Q36_PREFILL_MIN", Q36_PREFILL_MIN).max(1),
             chip_greedy,
             beat: 0,
+            timeline,
         };
         std::thread::Builder::new()
             .name("qwen36-batch".into())
@@ -687,6 +767,8 @@ struct Scheduler<S: RowStep> {
     /// Greedy replies take the graph's token (`AIEN_SERVE_CHIP_GREEDY=0` turns it off).
     chip_greedy: bool,
     beat: u64,
+    /// The decode timeline ([`crate::decode_timeline`]); `None` (the default): off.
+    timeline: Option<Recorder>,
 }
 
 /// Totals over one busy spell (first arrival to last departure).
@@ -696,8 +778,32 @@ struct Spell {
     steps: u64,
     row_tokens: u64,
     decode_tokens: u64,
+    /// Host wall and chip time of every step call (prefill chunks included).
     wall_ns: u64,
     chip_ns: u64,
+    /// DRA-66: replies that got a first token, and the sum of their times to it.
+    replies: u64,
+    ttft_ns: u64,
+    /// DRA-66: beats that fed at least one decoding row, the sum of their periods (join to the
+    /// next join or idle, host clock), of their chip time (every step in the beat), and of
+    /// `period - chip` per beat.
+    decode_beats: u64,
+    total_ns: u64,
+    decode_chip_ns: u64,
+    host_overhead_ns: u64,
+}
+
+impl Spell {
+    /// A decoding beat that began at `t0` with `chip_ns` of chip time closes at `now`.
+    fn close_beat(&mut self, open: Option<(Instant, u64)>, now: Instant) {
+        if let Some((t0, chip_ns)) = open {
+            let period = now.saturating_duration_since(t0).as_nanos() as u64;
+            self.decode_beats += 1;
+            self.total_ns += period;
+            self.decode_chip_ns += chip_ns;
+            self.host_overhead_ns += period.saturating_sub(chip_ns);
+        }
+    }
 }
 
 impl<S: RowStep> Scheduler<S> {
@@ -705,20 +811,33 @@ impl<S: RowStep> Scheduler<S> {
         let mut active: Vec<Active> = Vec::new();
         let mut lock: Option<GpuLock> = None;
         let (mut spell, mut spell_t0) = (Spell::default(), Instant::now());
+        // The last decoding beat's join and chip time, closed at the next join or idle.
+        let mut open_beat: Option<(Instant, u64)> = None;
         loop {
             // Idle: wait for a request, then take the chip.
             if active.is_empty() {
+                spell.close_beat(open_beat.take(), Instant::now());
+                if let Some(tl) = self.timeline.as_mut() {
+                    tl.idle(timeline_now_ns());
+                }
                 if lock.take().is_some() {
                     let s = &spell;
+                    let per = |ns: u64, n: u64| ns as f64 / 1e6 / n.max(1) as f64;
                     eprintln!(
-                        "aien-serve-http: qwen36-batch: spell over: {} beats, {} steps, {} row tokens ({} decoded), {:.1} ms/step wall, chip {:.1} ms/step, spell {:.1} s",
+                        "aien-serve-http: qwen36-batch: spell over: {} beats, {} steps, {} row tokens ({} decoded), {:.1} ms/step wall, chip {:.1} ms/step, spell {:.1} s; {} replies, ttft {:.1} ms mean; {} decoding beats, per beat total {:.2} chip {:.2} host_overhead {:.3} ms mean",
                         s.beats,
                         s.steps,
                         s.row_tokens,
                         s.decode_tokens,
-                        s.wall_ns as f64 / 1e6 / s.steps.max(1) as f64,
-                        s.chip_ns as f64 / 1e6 / s.steps.max(1) as f64,
+                        per(s.wall_ns, s.steps),
+                        per(s.chip_ns, s.steps),
                         spell_t0.elapsed().as_secs_f64(),
+                        s.replies,
+                        per(s.ttft_ns, s.replies),
+                        s.decode_beats,
+                        per(s.total_ns, s.decode_beats),
+                        per(s.decode_chip_ns, s.decode_beats),
+                        per(s.host_overhead_ns, s.decode_beats),
                     );
                 }
                 let Some(group) = self.waiting.take().or_else(|| self.rx.recv().ok()) else {
@@ -744,6 +863,11 @@ impl<S: RowStep> Scheduler<S> {
             }
             // Join: every waiting request or group that fits, in arrival order. A group joins whole,
             // all its jobs in this beat; while it waits for rows nothing behind it joins.
+            let beat_t0 = Instant::now();
+            spell.close_beat(open_beat.take(), beat_t0);
+            if let Some(tl) = self.timeline.as_mut() {
+                tl.join(timeline_now_ns());
+            }
             loop {
                 let group = match self.waiting.take() {
                     Some(g) => g,
@@ -762,8 +886,12 @@ impl<S: RowStep> Scheduler<S> {
             }
             // Sample one token for every decoding row from its logits; leave on stop / length /
             // cancel (a row still feeding its prompt leaves on cancel only).
+            if let Some(tl) = self.timeline.as_mut() {
+                tl.sample(timeline_now_ns());
+            }
             let mut i = 0;
             while i < active.len() {
+                let first = active[i].emitted == 0;
                 let finish = if active[i].prefilling() {
                     active[i]
                         .job
@@ -773,6 +901,10 @@ impl<S: RowStep> Scheduler<S> {
                 } else {
                     Self::sample_one(&mut active[i], self.max_context)
                 };
+                if first && active[i].emitted == 1 {
+                    spell.replies += 1;
+                    spell.ttft_ns += active[i].clock.times().ttft_ns;
+                }
                 match finish {
                     Some(f) => {
                         let a = active.swap_remove(i);
@@ -784,8 +916,19 @@ impl<S: RowStep> Scheduler<S> {
             if active.is_empty() {
                 continue;
             }
+            if let Some(tl) = self.timeline.as_mut() {
+                tl.feed(timeline_now_ns());
+            }
             self.beat += 1;
             spell.beats += 1;
+            // DRA-66: the beat's step totals start here, so its chip time includes the prefill
+            // chunks below as well as the decode steps.
+            let (wall0, chip0, steps0) = (spell.wall_ns, spell.chip_ns, spell.steps);
+            let mut sums = BeatSums {
+                beat: self.beat,
+                prompt_rows: active.iter().filter(|a| a.prefilling()).count() as u64,
+                ..BeatSums::default()
+            };
             Self::row_swaps_due(&mut active, &mut self.rows);
             // L369: a row with a long stretch of prompt left reads one chunk of it through the chip's
             // prefill this beat (its state ends as token by token would leave it). A chunk stops at
@@ -898,6 +1041,13 @@ impl<S: RowStep> Scheduler<S> {
                 if feed.is_empty() {
                     break;
                 }
+                // The launch timeline records a beat that steps one decoding row and nothing else.
+                let stamp = self.timeline.as_ref().is_some_and(Recorder::stamps)
+                    && active.len() == 1
+                    && feed.len() == 1
+                    && !active[who[0]].prefilling()
+                    && tests[0].is_plain();
+                let call0 = if stamp { timeline_now_ns() } else { 0 };
                 let t = Instant::now();
                 // The served path calls `step_rows` exactly as before; only a beat with a
                 // switched row goes through `step_rows_test`.
@@ -906,14 +1056,41 @@ impl<S: RowStep> Scheduler<S> {
                 } else {
                     self.model.step_rows_test(&feed, &tests)
                 };
+                let call1 = if stamp { timeline_now_ns() } else { 0 };
                 spell.wall_ns += t.elapsed().as_nanos() as u64;
                 spell.steps += 1;
                 spell.row_tokens += feed.len() as u64;
                 let m = feed.len() as u64;
                 match r {
-                    Ok(outs) if outs.len() == feed.len() => {
+                    // A row that asked for logits and got none could never pick its next token: fail
+                    // the step instead of leaving that request waiting forever.
+                    Ok(outs)
+                        if outs.len() == feed.len()
+                            && feed
+                                .iter()
+                                .zip(&outs)
+                                .all(|(f, o)| !f.logits || o.logits.is_some()) =>
+                    {
+                        if stamp {
+                            let rt = self.model.row_timeline(feed[0].row);
+                            if let Some(tl) = self.timeline.as_mut() {
+                                tl.stepped(
+                                    self.beat,
+                                    feed[0].row,
+                                    active[who[0]].steps,
+                                    (call0, call1),
+                                    &outs[0].stats,
+                                    rt,
+                                );
+                            }
+                        }
                         for ((f, &k), o) in feed.iter().zip(&who).zip(outs) {
                             spell.chip_ns += o.stats.chip_ns;
+                            sums.launches += u64::from(o.stats.launches);
+                            sums.submits += u64::from(o.stats.submits);
+                            sums.graph_ns += o.stats.total_ns;
+                            sums.record_ns += o.stats.record_ns;
+                            sums.step_chip_ns += o.stats.chip_ns;
                             let a = &mut active[k];
                             self.rows[a.row].history.push(f.token);
                             if a.prefilling() {
@@ -927,6 +1104,7 @@ impl<S: RowStep> Scheduler<S> {
                                 if a.chip_greedy {
                                     a.chip_next = Some(o.token);
                                 }
+                                a.decoded_beat = true;
                                 a.steps += 1;
                                 a.rows_sum += m;
                                 spell.decode_tokens += 1;
@@ -939,7 +1117,18 @@ impl<S: RowStep> Scheduler<S> {
                     r => {
                         let e = match r {
                             Err(e) => e,
-                            Ok(o) => format!("step_rows gave {} rows for {}", o.len(), feed.len()),
+                            Ok(o) if o.len() != feed.len() => {
+                                format!("step_rows gave {} rows for {}", o.len(), feed.len())
+                            }
+                            Ok(o) => {
+                                let rows: Vec<usize> = feed
+                                    .iter()
+                                    .zip(&o)
+                                    .filter(|(f, o)| f.logits && o.logits.is_none())
+                                    .map(|(f, _)| f.row)
+                                    .collect();
+                                format!("step_rows gave no logits for row(s) {rows:?} that asked for them")
+                            }
                         };
                         eprintln!("aien-serve-http: qwen36-batch: step over {m} rows failed: {e}");
                         for a in active.drain(..) {
@@ -947,6 +1136,22 @@ impl<S: RowStep> Scheduler<S> {
                         }
                         break;
                     }
+                }
+            }
+            // DRA-66: every row that decoded this beat waited for all of it, so each is charged
+            // the chip time of every step in the beat (prefill chunks included).
+            sums.chip_ns = spell.chip_ns - chip0;
+            sums.step_ns = spell.wall_ns - wall0;
+            sums.steps = spell.steps - steps0;
+            for a in active.iter_mut().filter(|a| a.decoded_beat) {
+                a.decoded_beat = false;
+                a.clock.chip(sums.chip_ns);
+                sums.rows += 1;
+            }
+            if sums.rows > 0 {
+                open_beat = Some((beat_t0, sums.chip_ns));
+                if let Some(tl) = self.timeline.as_mut() {
+                    tl.beat(sums);
                 }
             }
         }
@@ -1009,6 +1214,7 @@ impl<S: RowStep> Scheduler<S> {
             active.len() + 1,
         );
         let observer = SamplingObserver::new(&job.params);
+        let clock = ReplyClock::new(job.t_queued);
         let job_swap = job.test.row_swap.filter(|&k| k >= 1);
         let chip_greedy = self.chip_greedy && observer.is_greedy();
         active.push(Active {
@@ -1029,6 +1235,8 @@ impl<S: RowStep> Scheduler<S> {
             steps: 0,
             rows_sum: 0,
             swap_due: job_swap,
+            clock,
+            decoded_beat: false,
         });
     }
 
@@ -1093,6 +1301,7 @@ impl<S: RowStep> Scheduler<S> {
             return Some(FinishReason::Cancelled);
         }
         a.emitted += 1;
+        a.clock.emitted(Instant::now());
         // The last allowed token is not fed: nothing would read its logits.
         if a.emitted >= p.max_new_tokens || plen + a.emitted >= max_context {
             return Some(FinishReason::Length);
@@ -1133,13 +1342,14 @@ impl<S: RowStep> Scheduler<S> {
         }
         let ev = match err {
             Some(e) => Ev::Failed(e),
-            None => Ev::Done(GenerateOutcome {
-                emitted_tokens: a.emitted,
+            None => Ev::Done(GenerateOutcome::timed(
+                a.emitted,
                 finish,
-                prefill_ms: a.prefill_ms,
+                a.prefill_ms,
                 decode_ms,
-                sampling: Some(a.observer.record()),
-            }),
+                Some(a.observer.record()),
+                a.clock.times(),
+            )),
         };
         let _ = a.job.send(ev);
         self.free.push(a.row);

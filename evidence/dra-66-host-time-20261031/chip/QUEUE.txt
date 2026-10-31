@@ -1,0 +1,3 @@
+# DRA-66 lane order (Main; appended to chip/QUEUE.txt under "# Main (DRA-66)"); paths relative to chip/
+DRA-66/s01-tokens.sh
+DRA-66/s02-stamps.sh

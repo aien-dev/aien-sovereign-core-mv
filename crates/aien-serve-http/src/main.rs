@@ -269,6 +269,11 @@ fn main() -> ExitCode {
         print!("{}", build_info());
         return ExitCode::SUCCESS;
     }
+    // The decode timeline's checker: `--check-decode-timeline FILE [--drop REC:host|dev:IDX]`.
+    let argv: Vec<String> = std::env::args().skip(1).collect();
+    if argv.first().map(String::as_str) == Some("--check-decode-timeline") {
+        return ExitCode::from(aien_serve_http::decode_timeline::run_check(&argv[1..]));
+    }
     let mut args = match parse_args() {
         Ok(a) => a,
         Err(e) => {
