@@ -15,20 +15,6 @@
   "description": "GPU telemetry skill folder.",
   "dir_name": "gpu-telemetry",
   "dir_path": "skills/gpu-telemetry",
-  "extensions": {
-    "generated": {
-      "children": [],
-      "children_root": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "compiled_at": "2026-10-04T15:35:46Z",
-      "compiler": "crumb-compile/1",
-      "digest": "sha256:7e3010879f3825cb16a0651afe37835aa9ba6ac4a1b1c2a7d03f4767dbd136a2",
-      "evidence_files": 0,
-      "evidence_root": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "files": 1,
-      "generated_at_commit": "c848c7bf9ada87072c5f1ecb2b36142de106ef66",
-      "source_tree": "sha256:2bbfa75689b991cf00c65da6b601907b35de6251b9daa91fb1f95ea30a5c2d15"
-    }
-  },
   "history": [
     {
       "action": "seed:knowledge",
