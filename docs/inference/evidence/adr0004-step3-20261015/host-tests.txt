@@ -1,0 +1,74 @@
+# host tests, 2026-10-15T20:22:59-05:00, HEAD 9ddf5cb5 + uncommitted review fixes
+# cargo test -p aien-inference-abi -p aien-serve-http --features aien-inference-abi/host-test-engine -- --test-threads=1
+     Running unittests src/lib.rs (target/debug/deps/aien_inference_abi-1ddec709b86aeab4)
+test result: ok. 231 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 66.26s
+     Running unittests src/bin/own30b_check.rs (target/debug/deps/own30b_check-220d3859f8c7b443)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/bin/own30b_ttft.rs (target/debug/deps/own30b_ttft-11216b2cd46e3280)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/bin/own30b_wp_gate.rs (target/debug/deps/own30b_wp_gate-a1cea4bc582a3e75)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/attention_wiring.rs (target/debug/deps/attention_wiring-159d7c6e6fef0759)
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/bf16_paged_attention.rs (target/debug/deps/bf16_paged_attention-0540f0d587e0f423)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/branch_client_harness.rs (target/debug/deps/branch_client_harness-8abbe10e30925e1a)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+     Running tests/chat_prompt_pin.rs (target/debug/deps/chat_prompt_pin-05c5d81857010a0c)
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+     Running tests/gb10_serving_reservation.rs (target/debug/deps/gb10_serving_reservation-18efd170148d2112)
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/kv_seam_backend_test.rs (target/debug/deps/kv_seam_backend_test-96e21ae27166ee29)
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+     Running tests/llama32_pin.rs (target/debug/deps/llama32_pin-8033e73653f1e8ef)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/omega_backend_parity.rs (target/debug/deps/omega_backend_parity-491efa9d1d072b8d)
+test result: ok. 1 passed; 0 failed; 6 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/openwaldo_byte_tokenizer.rs (target/debug/deps/openwaldo_byte_tokenizer-5096ad0acfec32b2)
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+     Running tests/openwaldo_forward_parity.rs (target/debug/deps/openwaldo_forward_parity-b8ed76c2fd6379d6)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+     Running tests/paged_attention_parity.rs (target/debug/deps/paged_attention_parity-dce037a43a0c59a1)
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/paged_transformer_parity.rs (target/debug/deps/paged_transformer_parity-8c0ee9be69c05a9d)
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+     Running tests/plain_model_load.rs (target/debug/deps/plain_model_load-d01058a22cbe4213)
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+     Running tests/prefill_pool_exhaustion.rs (target/debug/deps/prefill_pool_exhaustion-bc31bf691493b5c7)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+     Running tests/qwen3_8b_chat_template.rs (target/debug/deps/qwen3_8b_chat_template-622607b98ccc504b)
+test result: ok. 6 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/qwen3_chat_template.rs (target/debug/deps/qwen3_chat_template-afb6561e535265c1)
+test result: ok. 4 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/qwen3_forward_parity.rs (target/debug/deps/qwen3_forward_parity-f3fd4f06ba1dc81d)
+test result: ok. 11 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.08s
+     Running tests/qwen3_untied_head.rs (target/debug/deps/qwen3_untied_head-b22fa88af18ad585)
+test result: ok. 2 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.01s
+     Running tests/resident_weights.rs (target/debug/deps/resident_weights-431b77dd3bcd0b94)
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+     Running tests/smollm2_pin.rs (target/debug/deps/smollm2_pin-52bea84e8e4b3aa6)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/tinyllama_noise_floor.rs (target/debug/deps/tinyllama_noise_floor-097ff6b0dd275e7c)
+test result: ok. 3 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/tinyllama_parity.rs (target/debug/deps/tinyllama_parity-5c73cbbda4b3d2a7)
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 402.25s
+     Running tests/tool_boundary.rs (target/debug/deps/tool_boundary-b2ce971afe4632c3)
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+     Running tests/transformer_parity.rs (target/debug/deps/transformer_parity-65b1b2ff8d35605d)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+     Running unittests src/lib.rs (target/debug/deps/aien_serve_http-41b151ebfd7ef6ce)
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+     Running unittests src/main.rs (target/debug/deps/aien_serve_http-431da38ac0275d8e)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/kv_persist.rs (target/debug/deps/kv_persist-0cf66e9f99ef99bb)
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 45.87s
+     Running tests/kv_persist_chip.rs (target/debug/deps/kv_persist_chip-8c08c1efabfcd5dc)
+test result: ok. 0 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/loopback.rs (target/debug/deps/loopback-2cd67f035f59f5ba)
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 70.56s
+     Running tests/shutdown.rs (target/debug/deps/shutdown-e2b32497810733de)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+   Doc-tests aien_inference_abi
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+   Doc-tests aien_serve_http
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
