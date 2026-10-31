@@ -570,6 +570,58 @@ mod ffi_attn {
     }
 }
 
+#[cfg(has_omega_pattn_mirror)]
+mod ffi_mirror {
+    use std::os::raw::c_void;
+    extern "C" {
+        pub fn omega_gpu_prefill_attn_kv_mirror_invalidate(
+            c: *const c_void,
+            layer: u32,
+            from_pos: u32,
+        );
+        pub fn omega_gpu_prefill_attn_kv_mirror_forget(c: *const c_void);
+    }
+}
+
+/// True when omega's KV mirror coherence calls are linked ([`kv_mirror_invalidate`],
+/// [`kv_mirror_forget`]); otherwise both are no-ops.
+pub const fn has_kv_mirror_coherence() -> bool {
+    cfg!(has_omega_pattn_mirror)
+}
+
+/// Drops every layer's mirrored rows of `cache` at and past `from_pos`
+/// (`omega_gpu_prefill_attn_kv_mirror_invalidate(c, UINT32_MAX, from_pos)`). Contract
+/// (omega_gpu_prefill_attn_api.h): call before cache rows below a mirror's `valid` are rewritten
+/// other than through prefill attention, e.g. after the sequence is rewound and decoded again.
+pub fn kv_mirror_invalidate(cache: &mut aien_omega_dattn::DecodeAttnCache, from_pos: usize) {
+    #[cfg(has_omega_pattn_mirror)]
+    {
+        let c = cache.raw_handle();
+        if !c.is_null() {
+            let from = u32::try_from(from_pos).unwrap_or(u32::MAX);
+            // SAFETY: a live cache handle, exclusively borrowed; omega only reads its views.
+            unsafe { ffi_mirror::omega_gpu_prefill_attn_kv_mirror_invalidate(c, u32::MAX, from) };
+        }
+    }
+    #[cfg(not(has_omega_pattn_mirror))]
+    let _ = (cache, from_pos);
+}
+
+/// Frees the mirrors of `cache` (`omega_gpu_prefill_attn_kv_mirror_forget`). Contract: call before
+/// the cache is freed, or a later cache at the same K plane address inherits stale rows.
+pub fn kv_mirror_forget(cache: &mut aien_omega_dattn::DecodeAttnCache) {
+    #[cfg(has_omega_pattn_mirror)]
+    {
+        let c = cache.raw_handle();
+        if !c.is_null() {
+            // SAFETY: as kv_mirror_invalidate.
+            unsafe { ffi_mirror::omega_gpu_prefill_attn_kv_mirror_forget(c) };
+        }
+    }
+    #[cfg(not(has_omega_pattn_mirror))]
+    let _ = cache;
+}
+
 fn bad(name: String) -> OmegaGpuError {
     OmegaGpuError::Rc { rc: -1, name }
 }
