@@ -144,10 +144,11 @@ impl DirCrumb {
     pub fn new(dir: &Path, description: Option<&str>, purpose: Option<CrumbPurpose>) -> Self {
         let (canon, dir_name) = dir_identity(dir);
 
-        // Inspect Above
-        let above = if let Some(parent) = dir.parent() {
+        // Inspect Above (from the resolved path, so `.` still has a parent)
+        let canon_path = Path::new(&canon);
+        let above = if let Some(parent) = canon_path.parent() {
             let platform = crate::platform::PlatformContext::detect();
-            if parent.starts_with(&platform.home_dir) && parent != dir {
+            if parent.starts_with(&platform.home_dir) && parent != canon_path {
                 let p_canon = parent
                     .canonicalize()
                     .map(|p| p.to_string_lossy().to_string())
@@ -835,5 +836,20 @@ mod tests {
             .to_string_lossy()
             .to_string();
         assert_eq!(crumb.dir_name, expected);
+    }
+
+    #[test]
+    fn crumb_for_dot_has_the_parent_entry() {
+        let cwd = std::env::current_dir().unwrap().canonicalize().unwrap();
+        let home = crate::platform::PlatformContext::detect().home_dir;
+        let parent = cwd.parent().unwrap();
+        assert!(
+            parent.starts_with(&home),
+            "test needs the crate directory under the home directory"
+        );
+        let crumb = DirCrumb::new(Path::new("."), None, None);
+        let above = crumb.above.expect("no parent entry for \".\"");
+        assert_eq!(above.canonical, parent.to_string_lossy());
+        assert_eq!(above.name, parent.file_name().unwrap().to_string_lossy());
     }
 }
