@@ -30,7 +30,9 @@ use std::time::{Duration, Instant};
 
 use aien_inference_abi::qwen3_moe_omega::{self as omega, LoadReport, OmegaEngine, WeightFormat};
 
-use crate::engine::{Engine, EngineError, FinishReason, GenerateOutcome, GenerateParams};
+use crate::engine::{
+    Engine, EngineError, FinishReason, GenerateOutcome, GenerateParams, ReplyClock,
+};
 use crate::kv_persist::PersistState;
 use crate::sampling::SamplingObserver;
 
@@ -434,6 +436,9 @@ impl Engine for OmegaDoor {
         p: &GenerateParams,
         on_token: &mut dyn FnMut(u32) -> bool,
     ) -> Result<GenerateOutcome, EngineError> {
+        // This engine does not report its chip time: chip_ns stays 0, so the host overhead the
+        // outcome reports is the whole decode wall.
+        let mut clock = ReplyClock::new(Instant::now());
         let max = self.engine.max_context_tokens();
         if prompt.is_empty() {
             return Err(EngineError::Failed("empty prompt".into()));
@@ -486,9 +491,13 @@ impl Engine for OmegaDoor {
         // The server's own sampler, so CPU and Omega engines pick tokens the same way.
         let mut observer = SamplingObserver::new(p);
         let mut sampler = |logits: &[f32], step: usize| observer.sample(logits, step);
+        let mut timed_on_token = |t: u32| {
+            clock.emitted(Instant::now());
+            on_token(t)
+        };
         let o = self
             .engine
-            .generate_with(prompt, &q, &mut sampler, on_token)
+            .generate_with(prompt, &q, &mut sampler, &mut timed_on_token)
             .map_err(EngineError::Failed)?;
         let sampling = observer.record();
         self.reused_last
@@ -507,19 +516,21 @@ impl Engine for OmegaDoor {
             "aien-serve-http: omega: lock wait {lock_wait_ms} ms, prompt {} tok, {} reused from the previous turn, prefill {} ms, decode {} tok in {} ms",
             o.prompt_tokens, o.reused_prompt_tokens, o.prefill_ms, o.emitted_tokens, o.decode_ms
         );
-        Ok(GenerateOutcome {
-            emitted_tokens: o.emitted_tokens,
-            finish: match o.finish {
-                omega::FinishReason::Stop => FinishReason::Stop,
-                omega::FinishReason::Length => FinishReason::Length,
-                omega::FinishReason::Cancelled => FinishReason::Cancelled,
-                // A constraint finished the output: complete, which HTTP clients read as "stop".
-                omega::FinishReason::Constraint => FinishReason::Stop,
-            },
-            prefill_ms: o.prefill_ms,
-            decode_ms: o.decode_ms,
-            sampling: Some(sampling),
-        })
+        let finish = match o.finish {
+            omega::FinishReason::Stop => FinishReason::Stop,
+            omega::FinishReason::Length => FinishReason::Length,
+            omega::FinishReason::Cancelled => FinishReason::Cancelled,
+            // A constraint finished the output: complete, which HTTP clients read as "stop".
+            omega::FinishReason::Constraint => FinishReason::Stop,
+        };
+        Ok(GenerateOutcome::timed(
+            o.emitted_tokens,
+            finish,
+            o.prefill_ms,
+            o.decode_ms,
+            Some(sampling),
+            clock.times(),
+        ))
     }
 
     fn persistence_status(&self) -> Option<serde_json::Value> {

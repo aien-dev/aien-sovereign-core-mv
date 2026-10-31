@@ -25,7 +25,9 @@ use aien_inference_abi::qwen3_coder::{
     compute_logits, forward_token, load_qwen3_coder, Qwen3CoderState, Qwen3CoderWeights,
 };
 
-use crate::engine::{Engine, EngineError, FinishReason, GenerateOutcome, GenerateParams};
+use crate::engine::{
+    Engine, EngineError, FinishReason, GenerateOutcome, GenerateParams, ReplyClock,
+};
 use crate::sampling::SamplingObserver;
 
 pub struct CpuReferenceEngine {
@@ -72,6 +74,7 @@ impl Engine for CpuReferenceEngine {
         }
         let mut state = Qwen3CoderState::new();
         let t0 = Instant::now();
+        let mut clock = ReplyClock::new(t0);
         let mut hidden = Vec::new();
         for (pos, &tok) in prompt.iter().enumerate() {
             hidden = forward_token(&self.weights, tok, pos, &mut state);
@@ -92,6 +95,7 @@ impl Engine for CpuReferenceEngine {
                 break FinishReason::Stop;
             }
             emitted += 1;
+            clock.emitted(Instant::now());
             if !on_token(next) {
                 break FinishReason::Cancelled;
             }
@@ -101,12 +105,13 @@ impl Engine for CpuReferenceEngine {
             hidden = forward_token(&self.weights, next, pos, &mut state);
             pos += 1;
         };
-        Ok(GenerateOutcome {
-            emitted_tokens: emitted,
+        Ok(GenerateOutcome::timed(
+            emitted,
             finish,
             prefill_ms,
-            decode_ms: t1.elapsed().as_millis() as u64,
-            sampling: Some(sampler.record()),
-        })
+            t1.elapsed().as_millis() as u64,
+            Some(sampler.record()),
+            clock.times(),
+        ))
     }
 }

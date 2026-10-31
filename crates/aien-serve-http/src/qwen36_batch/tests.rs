@@ -294,6 +294,33 @@ fn the_graphs_greedy_token_equals_the_host_argmax_path() {
     assert_eq!(concurrent(8, None, 16), want);
 }
 
+/// DRA-66: a reply's host-clock times add up (`host_overhead = total - chip`), and only the
+/// chip of steps between the first and last token handed out is counted.
+#[test]
+fn a_reply_reports_total_chip_and_host_overhead() {
+    let (d, _) = door(1, None, 1);
+    let (words, o) = run(&d, &[3, 1, 4, 1, 5], &greedy(12));
+    assert_eq!(words.len(), 12);
+    assert_eq!(o.emitted_tokens, 12);
+    assert!(o.ttft_ns > 0, "{o:?}");
+    assert!(o.total_ns > 0, "{o:?}");
+    assert_eq!(o.host_overhead_ns, o.total_ns - o.chip_ns, "{o:?}");
+    // The fake reports no chip time: the whole decode wall is the host's share.
+    assert_eq!(o.chip_ns, 0);
+    let t0 = Instant::now();
+    let mut c = crate::engine::ReplyClock::new(t0);
+    c.chip(7_000); // prefill: before the first token, not counted
+    c.emitted(t0 + Duration::from_micros(100));
+    c.chip(30_000);
+    c.emitted(t0 + Duration::from_micros(150));
+    c.chip(5_000); // a stop token's step: never handed out, not counted
+    let t = c.times();
+    assert_eq!(
+        (t.ttft_ns, t.total_ns, t.chip_ns, t.host_overhead_ns),
+        (100_000, 50_000, 30_000, 20_000)
+    );
+}
+
 // ---- the merge train's per-request switches (L384) ----
 
 /// The fake honors the switches as the chip does: a mutant changes the row's own words and no
@@ -871,13 +898,14 @@ fn a_reader_that_fell_behind_fails_even_when_its_done_fits() {
     });
     // The reader has taken both queued tokens: the job's last event fits now.
     drained_rx.recv().unwrap();
-    job.send(Ev::Done(GenerateOutcome {
-        emitted_tokens: 3,
-        finish: FinishReason::Cancelled,
-        prefill_ms: 0,
-        decode_ms: 0,
-        sampling: None,
-    }))
+    job.send(Ev::Done(GenerateOutcome::timed(
+        3,
+        FinishReason::Cancelled,
+        0,
+        0,
+        None,
+        crate::engine::ReplyTimes::default(),
+    )))
     .expect("Done fits after the drain");
     drop(job);
     let (mut r, got) = consumer.join().unwrap();

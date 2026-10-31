@@ -33,7 +33,8 @@ use aien_inference_abi::qwen38_omega::{
 
 use crate::decode_timeline::{timeline_now_ns, Recorder};
 use crate::engine::{
-    Engine, EngineError, FinishReason, GenerateOutcome, GenerateParams, GroupJob, TestSwitches,
+    Engine, EngineError, FinishReason, GenerateOutcome, GenerateParams, GroupJob, ReplyClock,
+    TestSwitches,
 };
 use crate::omega_engine::{GpuLock, GPU_LOCK_PATH};
 use crate::qwen38_engine::{
@@ -382,6 +383,10 @@ struct Active {
     /// The merge train's row swap still owed: at this decode step (from 1), at the first beat
     /// from it on with another conversation decoding, the two trade rows (negative control).
     swap_due: Option<u64>,
+    /// DRA-66: the reply's host-clock times (from `job.t_queued`); a decoding row is charged
+    /// the chip time of every decode step in each beat it decoded in (`decoded_beat`).
+    clock: ReplyClock,
+    decoded_beat: bool,
 }
 
 impl Active {
@@ -924,6 +929,10 @@ impl<S: RowStep> Scheduler<S> {
             }
             // One beat: every decoding row feeds its sampled token in the first step; the rows
             // still feeding their prompt feed up to `per_beat` prompt tokens, one per step.
+            // DRA-66: the chip time of this beat's decode steps, charged to every row that
+            // decoded in it (the row waits for the whole beat). The prefill-chunk block's chip is
+            // not charged, so a beat beside a joining prompt over-states the host share.
+            let mut beat_chip_ns = 0u64;
             for sub in 0..self.per_beat {
                 // Each joining prompt's state copy at its last turn header, before that token goes in.
                 for a in active.iter_mut() {
@@ -1012,6 +1021,7 @@ impl<S: RowStep> Scheduler<S> {
                         }
                         for ((f, &k), o) in feed.iter().zip(&who).zip(outs) {
                             spell.chip_ns += o.stats.chip_ns;
+                            beat_chip_ns += o.stats.chip_ns;
                             let a = &mut active[k];
                             self.rows[a.row].history.push(f.token);
                             if a.prefilling() {
@@ -1025,6 +1035,7 @@ impl<S: RowStep> Scheduler<S> {
                                 if a.chip_greedy {
                                     a.chip_next = Some(o.token);
                                 }
+                                a.decoded_beat = true;
                                 a.steps += 1;
                                 a.rows_sum += m;
                                 spell.decode_tokens += 1;
@@ -1057,6 +1068,10 @@ impl<S: RowStep> Scheduler<S> {
                         break;
                     }
                 }
+            }
+            for a in active.iter_mut().filter(|a| a.decoded_beat) {
+                a.decoded_beat = false;
+                a.clock.chip(beat_chip_ns);
             }
         }
     }
@@ -1118,6 +1133,7 @@ impl<S: RowStep> Scheduler<S> {
             active.len() + 1,
         );
         let observer = SamplingObserver::new(&job.params);
+        let clock = ReplyClock::new(job.t_queued);
         let job_swap = job.test.row_swap.filter(|&k| k >= 1);
         let chip_greedy = self.chip_greedy && observer.is_greedy();
         active.push(Active {
@@ -1138,6 +1154,8 @@ impl<S: RowStep> Scheduler<S> {
             steps: 0,
             rows_sum: 0,
             swap_due: job_swap,
+            clock,
+            decoded_beat: false,
         });
     }
 
@@ -1202,6 +1220,7 @@ impl<S: RowStep> Scheduler<S> {
             return Some(FinishReason::Cancelled);
         }
         a.emitted += 1;
+        a.clock.emitted(Instant::now());
         // The last allowed token is not fed: nothing would read its logits.
         if a.emitted >= p.max_new_tokens || plen + a.emitted >= max_context {
             return Some(FinishReason::Length);
@@ -1242,13 +1261,14 @@ impl<S: RowStep> Scheduler<S> {
         }
         let ev = match err {
             Some(e) => Ev::Failed(e),
-            None => Ev::Done(GenerateOutcome {
-                emitted_tokens: a.emitted,
+            None => Ev::Done(GenerateOutcome::timed(
+                a.emitted,
                 finish,
-                prefill_ms: a.prefill_ms,
+                a.prefill_ms,
                 decode_ms,
-                sampling: Some(a.observer.record()),
-            }),
+                Some(a.observer.record()),
+                a.clock.times(),
+            )),
         };
         let _ = a.job.send(ev);
         self.free.push(a.row);
