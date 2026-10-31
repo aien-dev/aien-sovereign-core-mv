@@ -8,6 +8,12 @@
 //! `AIEN_Q36_STROKE=0` runs each row's own one-row graph in turn (the first cut). Either way every
 //! row's bits must be exactly what that conversation gets alone (the gate checks it).
 //!
+//! A lone row (a beat or chunk of one) takes its own one-row graph with the exact head, unless
+//! `AIEN_Q36_ROWS_STROKE_N1=1` (exactly `1`, read once; off by default, DRA-89): then it rides the
+//! stroke graph as a stroke of one head, so the batch's dense GEMMs (row-aware with CUDApp's
+//! `AIEN_OMEGA_FP8GEMM_ROWAWARE=1`) carry one HTTP conversation. The batch final reads the plain
+//! bf16 head, not the exact one: a speed experiment until the chip A/B says otherwise.
+//!
 //! Negative control (TEST ONLY): `AIEN_Q36_TEST_ROW_SWAP=<k>` swaps the states of the first two
 //! fed rows once, at the first multi-row step from the `k`th on (counted from 1) that feeds two or
 //! more rows, so two conversations continue
@@ -376,7 +382,7 @@ impl Qwen38Omega {
         if !plain.is_empty() {
             let sub: Vec<RowFeed> = plain.iter().map(|&i| feed[i]).collect();
             let mut got = Vec::with_capacity(sub.len());
-            if sub.len() >= 2 && self.row_stroke.is_some() {
+            if rides_stroke(sub.len(), stroke_n1_on()) && self.row_stroke.is_some() {
                 let mut sg = self.row_stroke.take().expect("checked above");
                 let r = self.stroke_chunks(&mut sg, &sub, &mut got);
                 self.row_stroke = Some(sg);
@@ -479,8 +485,9 @@ impl Qwen38Omega {
         }
         let mut outs = Vec::with_capacity(feed.len());
         // Strokes (L312) for two rows or more; a lone row takes its own one-row graph (with the exact
-        // head): one head costs more in a stroke (L312: N=1 v2 27.3 ms vs 24.4 ms v1).
-        if feed.len() >= 2 && self.row_stroke.is_some() {
+        // head): one head costs more in a stroke (L312: N=1 v2 27.3 ms vs 24.4 ms v1), unless
+        // AIEN_Q36_ROWS_STROKE_N1=1 (DRA-89: the row-aware dense GEMM at one row).
+        if rides_stroke(feed.len(), stroke_n1_on()) && self.row_stroke.is_some() {
             let mut sg = self.row_stroke.take().expect("checked above");
             let r = self.stroke_chunks(&mut sg, feed, &mut outs);
             self.row_stroke = Some(sg);
@@ -494,7 +501,7 @@ impl Qwen38Omega {
     }
 
     /// Up to MAX_HEADS rows per command list, the head slots pointed at them; a chunk of one row
-    /// takes the row's own graph.
+    /// takes the row's own graph (unless `AIEN_Q36_ROWS_STROKE_N1=1`).
     fn stroke_chunks(
         &mut self,
         sg: &mut Q36Graph,
@@ -502,10 +509,13 @@ impl Qwen38Omega {
         outs: &mut Vec<RowOut>,
     ) -> Result<(), String> {
         let (v, h) = (self.config.vocab, self.config.hidden);
+        let n1 = stroke_n1_on();
         {
             for chunk in feed.chunks(q::MAX_HEADS) {
-                if let [f] = chunk {
-                    outs.push(self.row_token(f)?);
+                if !rides_stroke(chunk.len(), n1) {
+                    for f in chunk {
+                        outs.push(self.row_token(f)?);
+                    }
                     continue;
                 }
                 // The exact head (when built) makes off-candidate logits -inf: on per head slot, for the
@@ -700,4 +710,52 @@ fn stroke_on() -> bool {
 
 fn batch_on() -> bool {
     std::env::var("AIEN_Q36_STROKE_V2").as_deref() != Ok("0")
+}
+
+/// DRA-89: `AIEN_Q36_ROWS_STROKE_N1=1` sends a lone row through the stroke graph (read once).
+fn stroke_n1_on() -> bool {
+    static ON: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| {
+        stroke_n1_from(std::env::var("AIEN_Q36_ROWS_STROKE_N1").ok().as_deref())
+    });
+    *ON
+}
+
+/// The knob's value rule: on for exactly `1`, off for anything else (unset, `0`, `yes`, padded).
+fn stroke_n1_from(v: Option<&str>) -> bool {
+    v == Some("1")
+}
+
+/// Whether a beat or chunk of `rows` rows rides the stroke graph: two or more always, a lone row
+/// only with `n1` ([`stroke_n1_on`]); none never.
+fn rides_stroke(rows: usize, n1: bool) -> bool {
+    rows >= 2 || (rows == 1 && n1)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{rides_stroke, stroke_n1_from};
+
+    #[test]
+    fn stroke_n1_knob_is_exactly_one() {
+        assert!(stroke_n1_from(Some("1")));
+        for off in [None, Some(""), Some("0"), Some("yes"), Some(" 1"), Some("1 "), Some("11")] {
+            assert!(!stroke_n1_from(off), "{off:?} must leave the knob off");
+        }
+    }
+
+    #[test]
+    fn lone_row_rides_the_stroke_only_with_the_knob() {
+        assert!(!rides_stroke(1, false), "knob off: a lone row takes its own graph");
+        assert!(rides_stroke(1, true), "knob on: a lone row rides the stroke");
+        assert!(!rides_stroke(0, false));
+        assert!(!rides_stroke(0, true));
+    }
+
+    #[test]
+    fn two_to_eight_rows_ride_the_stroke_either_way() {
+        for rows in 2..=8 {
+            assert!(rides_stroke(rows, false), "{rows} rows, knob off");
+            assert!(rides_stroke(rows, true), "{rows} rows, knob on");
+        }
+    }
 }
