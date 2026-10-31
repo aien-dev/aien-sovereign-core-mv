@@ -26,7 +26,7 @@ use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use aien_inference_abi::qwen3_moe_omega::{host_test_engine, OmegaEngine, WeightFormat};
 use aien_serve_http::codec::ByteCodec;
@@ -794,8 +794,17 @@ fn a_park_that_lands_after_the_conversation_moved_on_is_harmless() {
 fn a_graceful_shutdown_releases_the_engine_and_flushes_the_parks() {
     // serve_until: on shutdown the server stops and lets go of the engine; dropping the door
     // then drains the parks still in flight (each stalls 200 ms) and leaves no temp file.
+    //
+    // The drain budget (`AIEN_KV_STORE_DRAIN_MS`, 2 s by default) is wall-clock time, and when
+    // it runs out the store cancels the parks it has not started (ADR 0003 section 7.5). Three
+    // stalled parks on a host whose test threads are starved (nice 19 behind busy cores) can
+    // need more than 2 s, so with the default budget this test failed under load without any
+    // defect. It checks that the drop drains, not how fast the host is: the budget is WAIT, like
+    // every other wait for the parks in this file, and the drop must return as soon as the
+    // parks are done, well before that budget runs out.
     let scratch = Scratch::new("shutdown");
-    let s = Setup::new(&scratch.store(), &gen_key());
+    let s = Setup::new(&scratch.store(), &gen_key())
+        .with_var("AIEN_KV_STORE_DRAIN_MS", &WAIT.as_millis().to_string());
     let (d, _) = door_with_fault(&scratch, &s, Some("p3:200"));
     let _ = turn(&d, &prompt1());
     let h1 = d.history();
@@ -825,14 +834,23 @@ fn a_graceful_shutdown_releases_the_engine_and_flushes_the_parks() {
     wait_for("the server to release the engine", || {
         Arc::strong_count(&keep) == 1
     });
+    let parked_before = pk_of(&keep).counters().parked_chunks;
+    let t0 = Instant::now();
     drop(keep);
+    let took = t0.elapsed();
+    assert!(
+        took < WAIT,
+        "the drop waited out the drain budget ({took:?}): the parks did not finish"
+    );
     assert!(
         files_under(&scratch.store().join("tmp")).is_empty(),
         "no temp file left"
     );
+    let objects = files_under(&scratch.store().join("objects")).len();
     assert!(
-        files_under(&scratch.store().join("objects")).len() >= 3,
-        "the parks were flushed"
+        objects >= 3,
+        "the parks were flushed: {objects} objects, {parked_before} parked before the drop, \
+         the drop took {took:?}"
     );
     let (b, _) = door(&scratch, &s);
     let _ = turn(&b, &prompt2(&h1));
