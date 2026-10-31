@@ -147,6 +147,7 @@ mod ffi {
         ) -> i32;
         pub fn omega_gpu_q36_graph_kind_name(kind: u8) -> *const std::ffi::c_char;
         pub fn omega_gpu_q36_graph_test_set_mutant(g: *mut OmegaGpuQ36Graph, mutant: i32);
+        pub fn omega_gpu_q36_graph_set_lm_head_fp8(g: *mut OmegaGpuQ36Graph, head: *const c_void) -> i32;
         pub fn omega_gpu_q36_graph_set_exact_head(
             g: *mut OmegaGpuQ36Graph,
             screen: *const c_void,
@@ -664,6 +665,30 @@ impl Q36Graph {
         #[cfg(not(has_omega_q36))]
         {
             let _ = (screen, coef);
+            Err(OmegaGpuError::Unavailable)
+        }
+    }
+
+    /// FP8 lm_head (`omega_gpu_q36_graph_set_lm_head_fp8`): `[vocab][2048]` with 128 x 128 block scales, e.g. the exact
+    /// head's fp8b screen. The hidden is then written x 2^64 and every token's logits come from this head (FP8 values,
+    /// not the bf16 head's). A batched stroke runs it per head unless the process has `AIEN_OMEGA_Q36_FP8_HEAD=1`
+    /// (CUDApp DRA-69: one launch for every head). Null goes back to bf16.
+    ///
+    /// # Safety
+    /// `head` is null or a live `OmegaGpuFp8Tensor` that outlives every later token of this graph.
+    pub unsafe fn set_lm_head_fp8(&mut self, head: *mut c_void) -> Result<(), OmegaGpuError> {
+        #[cfg(has_omega_q36)]
+        {
+            // SAFETY: ptr is live; head per the caller's contract.
+            let rc = unsafe { ffi::omega_gpu_q36_graph_set_lm_head_fp8(self.ptr, head) };
+            if rc != 0 {
+                return Err(session_err("q36 graph set_lm_head_fp8", rc));
+            }
+            Ok(())
+        }
+        #[cfg(not(has_omega_q36))]
+        {
+            let _ = head;
             Err(OmegaGpuError::Unavailable)
         }
     }
