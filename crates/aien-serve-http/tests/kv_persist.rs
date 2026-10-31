@@ -793,7 +793,10 @@ fn a_park_that_lands_after_the_conversation_moved_on_is_harmless() {
 #[test]
 fn a_graceful_shutdown_releases_the_engine_and_flushes_the_parks() {
     // serve_until: on shutdown the server stops and lets go of the engine; dropping the door
-    // then drains the parks still in flight (each stalls 200 ms) and leaves no temp file.
+    // then drains the parks still in flight (each stalls 2 s) and leaves no temp file. The
+    // stall is long so the parks are still in flight when the door drops even on a starved
+    // host (with 200 ms they sometimes finished first and the drain went untested); the test
+    // checks that just before the drop.
     //
     // The drain budget (`AIEN_KV_STORE_DRAIN_MS`, 2 s by default) is wall-clock time, and when
     // it runs out the store cancels the parks it has not started (ADR 0003 section 7.5). Three
@@ -805,7 +808,7 @@ fn a_graceful_shutdown_releases_the_engine_and_flushes_the_parks() {
     let scratch = Scratch::new("shutdown");
     let s = Setup::new(&scratch.store(), &gen_key())
         .with_var("AIEN_KV_STORE_DRAIN_MS", &WAIT.as_millis().to_string());
-    let (d, _) = door_with_fault(&scratch, &s, Some("p3:200"));
+    let (d, _) = door_with_fault(&scratch, &s, Some("p3:2000"));
     let _ = turn(&d, &prompt1());
     let h1 = d.history();
     let keep = Arc::new(d);
@@ -824,10 +827,6 @@ fn a_graceful_shutdown_releases_the_engine_and_flushes_the_parks() {
         }))
         .unwrap();
     assert_eq!(get_json(addr, "/health")["status"], "ok");
-    assert!(
-        pk_of(&keep).counters().parked_chunks < 3,
-        "the parks are still in flight"
-    );
     tx.send(()).unwrap();
     rt.block_on(h).unwrap();
     assert!(TcpStream::connect(addr).is_err(), "the listener is closed");
@@ -835,6 +834,7 @@ fn a_graceful_shutdown_releases_the_engine_and_flushes_the_parks() {
         Arc::strong_count(&keep) == 1
     });
     let parked_before = pk_of(&keep).counters().parked_chunks;
+    assert!(parked_before < 3, "the parks are still in flight before the drop");
     let t0 = Instant::now();
     drop(keep);
     let took = t0.elapsed();
